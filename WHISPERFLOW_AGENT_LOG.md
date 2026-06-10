@@ -116,3 +116,17 @@ lip-reading fusion.** Camera = control; voice = text. New backlog item:
 personal whispered-audio LoRA flywheel. Cheapest next experiment: record
 ~30–60 min of own whispered dictation w/ corrected transcripts, LoRA-tune
 whisper via MLX, measure WER vs stock.
+
+## MVP build-out (2026-06-10, agent team round 2)
+
+| Agent | Delivered | Tests |
+|---|---|---|
+| Head cursor + drag | `control/head_cursor.py` (One-Euro + deadzone + gain + precision), `mouse.move_by/left_down/left_up` with drag-aware moves, jaw machine → DRAG_START/DRAG_END, `engine.winking` | 7 new + jaw suite rewritten |
+| HUD visualization | per-gesture live meters w/ personal threshold ticks, event toasts (LEFT CLICK / DRAG / SCROLL ↑…), [CURSOR] status | 10 new headless |
+| Overlay polish | frosted-glass panels (NSVisualEffectView + fallbacks), fading text swaps, animated show/hide | import + suite |
+| Integrator | controller/app wiring (cursor toggle, drag mapping, meters feed, flash), menu + trigger-cursor, LICENSE, README, pyproject vision deps (rebuilt venv was missing mediapipe/opencv — camera mode would not start) | full suite 55 passed, 3 skipped |
+
+Live smoke: app stable through camera-mode on → 15s capture → off; no log errors.
+
+**MVP remaining:** the dogfood week against DESIGN.md success bar. Everything
+else (Swift port, voice onboarding/LoRA, gaze) is post-MVP.
