@@ -11,13 +11,15 @@ from __future__ import annotations
 import AppKit
 from PyObjCTools import AppHelper
 
-_WIDTH, _HEIGHT, _MARGIN_BOTTOM = 520, 64, 120
+_WIDTH, _HEIGHT, _MARGIN_BOTTOM = 520, 96, 120
+_TAIL_CHARS = 165  # ~3 lines at 16pt; older text scrolls off the top
 
 
 class Overlay:
     def __init__(self) -> None:
         self._panel: AppKit.NSPanel | None = None
         self._label: AppKit.NSTextField | None = None
+        self._last_text = ""
 
     # -- public, thread-safe ------------------------------------------------
 
@@ -76,12 +78,21 @@ class Overlay:
 
     def _show_main(self) -> None:
         self._ensure_panel()
+        self._last_text = ""
         self._label.setStringValue_("…")
         self._panel.orderFrontRegardless()
 
     def _update_main(self, text: str) -> None:
-        if self._label is not None:
-            self._label.setStringValue_(text or "…")
+        if self._label is None or text == self._last_text:
+            return
+        self._last_text = text
+        shown = text or "…"
+        if len(shown) > _TAIL_CHARS:
+            # tail-anchored: always show the end of the utterance
+            cut = shown[-_TAIL_CHARS:]
+            cut = cut.split(" ", 1)[-1] if " " in cut[:30] else cut
+            shown = "…" + cut
+        self._label.setStringValue_(shown)
 
     def _hide_main(self) -> None:
         if self._panel is not None:
