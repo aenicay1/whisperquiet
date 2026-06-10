@@ -1,51 +1,62 @@
 # whisperquiet 🤫
 
-Whisper-quiet dictation + camera head/gesture control for macOS. Your voice
-does the typing, your webcam does the pointing — fully on-device.
+Whisper-quiet dictation + camera head/gesture control for macOS — your voice
+does the typing, your webcam does the pointing. **Fully on-device: no audio,
+no video, no text ever leaves your Mac.**
 
-See [DESIGN.md](DESIGN.md) for the decision record and roadmap. Current state:
-**week-1 skeleton** — push-to-talk dictation streaming into a floating
-overlay, committed into the focused app on release. Camera control lands in
-week 3–4.
+See [DESIGN.md](DESIGN.md) for the decision record and
+[WHISPERFLOW_AGENT_LOG.md](WHISPERFLOW_AGENT_LOG.md) for build/verification
+state.
 
-## Setup
+## Install
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-whisperquiet
+git clone git@github.com:aenicay1/whisperquiet.git ~/Projects/whisperquiet
+cd ~/Projects/whisperquiet
+python3 -m venv .venv && .venv/bin/pip install -e .
+bash scripts/make_app.sh        # builds ~/Applications/WhisperQuiet.app
+open ~/Applications/WhisperQuiet.app
 ```
 
-First run downloads the whisper model (~1.6 GB for large-v3-turbo) and will
-prompt for permissions:
-
-- **Microphone** — audio capture
-- **Input Monitoring** — the global push-to-talk key (pynput)
-- **Accessibility** — injecting the final text (Quartz events)
-
-Grant them to your terminal (or whatever launches the app) in
-System Settings → Privacy & Security, then restart the app.
+> Keep the repo **outside** `~/Documents` (TCC blocks app bundles from
+> reading it). First run downloads the whisper model (~1.6 GB) and prompts
+> for **Microphone**, **Accessibility**, and **Input Monitoring** — grant
+> all three, then relaunch (macOS applies permissions at launch). Camera
+> permission is requested when you first enable camera control.
 
 ## Use
 
-Hold **right Option** (default), whisper, release. Partial text streams into
-the overlay while you speak; the final transcription is typed into whatever
-app has focus when you let go.
+| Action | How |
+|---|---|
+| Dictate | hold **right Option**, whisper, release — text lands in the focused app |
+| Camera control on/off | 🤫 menu → *Camera Control*, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-camera"` |
+| Head cursor on/off | 🤫 menu → *Head Cursor*, or `…/trigger-cursor` |
+| Left / right click | left / right **wink** |
+| Scroll up / down | **raise brows** / **pucker** |
+| Drag | **open mouth** to grab, close to drop |
+| Re-run gesture calibration | `…/trigger-calibrate` |
+| Quit (clears any stuck panel) | `…/trigger-quit` |
 
-Config lives at `~/Library/Application Support/whisperquiet/config.json`:
+First camera-control activation runs a ~25-second guided calibration; your
+personal gesture thresholds persist across launches. The HUD (top right)
+shows live gesture meters, a face wireframe, status, and fps.
 
-| key | default | notes |
-|-----|---------|-------|
-| `ptt_key` | `alt_r` | pynput key name (`f13` is great if you have one) |
-| `model_repo` | `mlx-community/whisper-large-v3-turbo` | any MLX whisper repo |
-| `language` | `en` | |
-| `stream_interval` | `0.7` | seconds between partial re-transcriptions |
-| `inject_mode` | `keystrokes` | `paste` for apps that drop synthetic keys |
+If the 🤫 icon is hidden (notch overflow), every control above also works
+through the trigger files.
+
+Config: `~/Library/Application Support/whisperquiet/config.json`
+(PTT key, whisper model, streaming interval, injection mode, gesture data).
 
 ## Development
 
 ```sh
-pip install pytest
-pytest
+.venv/bin/pip install pytest
+.venv/bin/python -m pytest tests/ -q
 ```
+
+Pure-logic modules (gesture engine, calibration, cursor mapping, One-Euro
+filter) are camera-free and deterministic — tests run headless.
+
+## License
+
+[MIT](LICENSE)

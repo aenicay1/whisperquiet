@@ -23,7 +23,10 @@ class WhisperQuietApp(rumps.App):
         self.camera_item = rumps.MenuItem(
             "Camera Control (beta)", callback=self._toggle_camera
         )
-        self.menu = [self.status_item, self.camera_item, None]
+        self.cursor_item = rumps.MenuItem(
+            "Head Cursor", callback=self._toggle_cursor
+        )
+        self.menu = [self.status_item, self.camera_item, self.cursor_item, None]
         self._camera = None
 
         self.recorder = MicRecorder()
@@ -46,6 +49,7 @@ class WhisperQuietApp(rumps.App):
 
         camera = config_mod.CONFIG_DIR / "trigger-camera"
         calibrate = config_mod.CONFIG_DIR / "trigger-calibrate"
+        cursor = config_mod.CONFIG_DIR / "trigger-cursor"
         quit_file = config_mod.CONFIG_DIR / "trigger-quit"
         while True:
             if quit_file.exists():
@@ -57,6 +61,9 @@ class WhisperQuietApp(rumps.App):
             if calibrate.exists():
                 calibrate.unlink(missing_ok=True)
                 AppHelper.callAfter(self._recalibrate)
+            if cursor.exists():
+                cursor.unlink(missing_ok=True)
+                AppHelper.callAfter(self._toggle_cursor, self.cursor_item)
             time.sleep(0.5)
 
     def _recalibrate(self) -> None:
@@ -139,6 +146,13 @@ class WhisperQuietApp(rumps.App):
             )
         self._camera.start()
         item.state = 1
+
+    def _toggle_cursor(self, item: rumps.MenuItem) -> None:
+        if self._camera is None or not self._camera.active:
+            self._toggle_camera(self.camera_item)  # cursor needs the camera
+        if self._camera is None or not self._camera.active:
+            return  # camera blocked on permission; user retries after grant
+        item.state = 1 if self._camera.toggle_cursor() else 0
 
     def _save_calibration(self, persisted: dict) -> None:
         self.config.gestures["calibration"] = persisted

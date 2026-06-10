@@ -85,10 +85,14 @@ def test_pucker_held_emits_scroll_down():
     assert set(events) == {GestureEvent.SCROLL_DOWN}
 
 
-def test_jaw_hold_fires_toggle_dictation_exactly_once():
+def test_jaw_hold_fires_drag_start_once_then_drag_end_on_release():
     engine, events = make_engine()
     run(engine, hold("jawOpen", 0.9, start=0.0, duration=3.0))  # well past refractory
-    assert events == [GestureEvent.TOGGLE_DICTATION]
+    assert events == [GestureEvent.DRAG_START, GestureEvent.DRAG_END]
+    # extra relaxed frames: DRAG_END fires exactly once.
+    engine.process({"jawOpen": 0.0}, 3.2)
+    engine.process({"jawOpen": 0.0}, 3.3)
+    assert events == [GestureEvent.DRAG_START, GestureEvent.DRAG_END]
 
 
 def test_jaw_short_tap_fires_nothing():
@@ -97,13 +101,34 @@ def test_jaw_short_tap_fires_nothing():
     assert events == []
 
 
-def test_jaw_refire_blocked_until_released_and_cooled_down():
+def test_jaw_refractory_blocks_rapid_second_drag_start():
     engine, events = make_engine()
-    run(engine, hold("jawOpen", 0.9, start=0.0, duration=0.5))  # fires once
-    # re-hold immediately: hold time met at ~1.0s but refractory (fired ~0.4s)
-    # runs to ~1.4s, so the second fire waits for the cooldown.
-    run(engine, hold("jawOpen", 0.9, start=0.6, duration=1.0))
-    assert events == [GestureEvent.TOGGLE_DICTATION] * 2
+    run(engine, hold("jawOpen", 0.9, start=0.0, duration=0.5))  # start ~0.4, end ~0.5
+    assert events == [GestureEvent.DRAG_START, GestureEvent.DRAG_END]
+    # re-hold immediately: hold time met at ~1.0s but refractory (started
+    # ~0.4s) runs to ~1.4s — no second DRAG_START before the cooldown.
+    run(engine, hold("jawOpen", 0.9, start=0.6, duration=0.7))
+    assert events == [GestureEvent.DRAG_START, GestureEvent.DRAG_END]
+    # held past the cooldown: the second drag starts and ends normally.
+    run(engine, hold("jawOpen", 0.9, start=1.4, duration=1.0))
+    assert events == [
+        GestureEvent.DRAG_START,
+        GestureEvent.DRAG_END,
+        GestureEvent.DRAG_START,
+        GestureEvent.DRAG_END,
+    ]
+
+
+def test_winking_property_tracks_wink_phase():
+    engine, _ = make_engine()
+    assert engine.winking is False
+    engine.process({"eyeBlinkLeft": 0.7, "eyeBlinkRight": 0.1}, 0.0)
+    assert engine.winking is True
+    engine.process({"eyeBlinkLeft": 0.1, "eyeBlinkRight": 0.1}, 0.2)
+    assert engine.winking is False
+    # natural blink (both eyes) is cancelled, not winking.
+    engine.process({"eyeBlinkLeft": 0.9, "eyeBlinkRight": 0.9}, 0.4)
+    assert engine.winking is False
 
 
 def test_baseline_subtraction_prevents_resting_brow_autoscroll():

@@ -13,6 +13,8 @@ dependencies = [
     "pyobjc-framework-Cocoa",
     "pyobjc-framework-Quartz",
     "pyobjc-framework-AVFoundation",
+    "mediapipe>=0.10",
+    "opencv-python",
 ]
 
 [project.scripts]

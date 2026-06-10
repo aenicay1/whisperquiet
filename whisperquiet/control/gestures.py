@@ -10,8 +10,10 @@ Detection rules:
   deliberate eye-closure (>= max duration) can be cancelled.
 - Scroll gestures (browInnerUp / mouthPucker) repeat while held: first event
   after the hold time, then every repeat interval.
-- jawOpen held fires TOGGLE_DICTATION once; a refractory window blocks
-  re-fire until the jaw is released and the cooldown has passed.
+- jawOpen held fires DRAG_START once (open-mouth-hold = drag, decision #8);
+  releasing below jaw_off then fires DRAG_END. The refractory window blocks
+  starting a new drag, never ending one. TOGGLE_DICTATION stays in the enum:
+  the integrator maps DRAG_START to dictation-toggle when configured.
 - All scores are evaluated relative to a neutral-face baseline
   (set_baseline) as max(0, score - baseline); faces differ a lot at rest.
 """
@@ -29,6 +31,8 @@ class GestureEvent(Enum):
     SCROLL_UP = "scroll_up"  # repeating while held
     SCROLL_DOWN = "scroll_down"  # repeating while held
     TOGGLE_DICTATION = "toggle_dictation"
+    DRAG_START = "drag_start"
+    DRAG_END = "drag_end"
 
 
 @dataclass
@@ -45,7 +49,7 @@ class GestureConfig:
     scroll_off: float = 0.35
     scroll_hold: float = 0.15
     scroll_repeat: float = 0.15
-    # jawOpen toggle: must be held, then refractory blocks re-fire.
+    # jawOpen drag: must be held to start; refractory blocks a new start.
     jaw_on: float = 0.6
     jaw_off: float = 0.4
     jaw_hold: float = 0.4
@@ -96,6 +100,14 @@ class GestureEngine:
         self._brow = _RepeatState()
         self._pucker = _RepeatState()
         self._jaw = _HoldState()
+
+    @property
+    def winking(self) -> bool:
+        """True while either eye is mid-wink (the integrator slows the cursor
+        during aim)."""
+        return (
+            self._left_wink.phase == "winking" or self._right_wink.phase == "winking"
+        )
 
     def set_baseline(self, blendshapes: dict[str, float]) -> None:
         """Store neutral-face scores; process() works on max(0, score - baseline)."""
@@ -182,11 +194,14 @@ class GestureEngine:
                 s.held, s.start, s.fired = True, t, False
         elif own < cfg.jaw_off:
             s.held = False
+            if s.fired:  # drag in progress: always end it, no refractory
+                s.fired = False
+                self.on_event(GestureEvent.DRAG_END)
         if (
             s.held
             and not s.fired
             and t - s.start >= cfg.jaw_hold
             and t - s.last_fire >= cfg.jaw_refractory
         ):
-            self.on_event(GestureEvent.TOGGLE_DICTATION)
+            self.on_event(GestureEvent.DRAG_START)
             s.fired, s.last_fire = True, t
