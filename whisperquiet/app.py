@@ -60,22 +60,51 @@ class WhisperQuietApp(rumps.App):
         self._recording.clear()
 
     def _toggle_camera(self, item: rumps.MenuItem) -> None:
+        if self._camera is not None and self._camera.active:
+            self._camera.stop()
+            item.state = 0
+            return
+        if not self._ensure_camera_permission(item):
+            return
         # deferred import: mediapipe/opencv load only if the mode is used
         from .vision.controller import CameraController
 
-        if self._camera is None or not self._camera.active:
-            if self._camera is None:
-                self._camera = CameraController(
-                    jaw_toggle_dictation=bool(
-                        self.config.gestures.get("jaw_toggle_dictation", False)
-                    ),
-                    on_toggle_dictation=self._toggle_dictation,
-                )
-            self._camera.start()
-            item.state = 1
-        else:
-            self._camera.stop()
-            item.state = 0
+        if self._camera is None:
+            self._camera = CameraController(
+                jaw_toggle_dictation=bool(
+                    self.config.gestures.get("jaw_toggle_dictation", False)
+                ),
+                on_toggle_dictation=self._toggle_dictation,
+            )
+        self._camera.start()
+        item.state = 1
+
+    def _ensure_camera_permission(self, item: rumps.MenuItem) -> bool:
+        """TCC camera prompt must come from this app's run loop — bare CLI
+        scripts get silently refused. Re-enters _toggle_camera on grant."""
+        import AVFoundation as AV
+        from PyObjCTools import AppHelper
+
+        status = AV.AVCaptureDevice.authorizationStatusForMediaType_(
+            AV.AVMediaTypeVideo
+        )
+        if status == 3:  # authorized
+            return True
+        if status == 0:  # not determined → prompt
+            def handler(granted: bool) -> None:
+                if granted:
+                    AppHelper.callAfter(self._toggle_camera, item)
+                else:
+                    self.status_item.title = "Status: camera denied"
+            AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                AV.AVMediaTypeVideo, handler
+            )
+            self.status_item.title = "Status: waiting for camera permission…"
+        else:  # denied/restricted
+            self.status_item.title = (
+                "Status: camera denied — System Settings → Privacy → Camera"
+            )
+        return False
 
     def _toggle_dictation(self) -> None:
         if self._recording.is_set():

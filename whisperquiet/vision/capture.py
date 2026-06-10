@@ -7,13 +7,17 @@ read loop never blocks on inference.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
+# auth is handled on the app's main run loop (see app._ensure_camera_permission);
+# OpenCV must not re-request from its capture thread — that hard-fails on macOS
+os.environ.setdefault("OPENCV_AVFOUNDATION_SKIP_AUTH", "1")
+import cv2  # noqa: E402
 import numpy as np
 
 DEFAULT_MODEL = Path(__file__).resolve().parents[2] / "models" / "face_landmarker.task"
