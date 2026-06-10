@@ -1,0 +1,25 @@
+[project]
+name = "whisperquiet"
+version = "0.1.0"
+description = "Whisper-quiet dictation + camera head/gesture control for macOS"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "mlx-whisper>=0.4",
+    "numpy",
+    "sounddevice",
+    "pynput",
+    "rumps",
+    "pyobjc-framework-Cocoa",
+    "pyobjc-framework-Quartz",
+]
+
+[project.scripts]
+whisperquiet = "whisperquiet.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["whisperquiet*"]
