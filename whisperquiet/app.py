@@ -66,6 +66,19 @@ class WhisperQuietApp(rumps.App):
             self._toggle_camera(self.camera_item)
 
     def _warm_up(self) -> None:
+        import Quartz
+        from ApplicationServices import (
+            AXIsProcessTrusted,
+            AXIsProcessTrustedWithOptions,
+        )
+
+        trusted = AXIsProcessTrusted()
+        print("accessibility trusted:", trusted, flush=True)
+        if not trusted:  # pops the system dialog with an Open Settings button
+            AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+        if hasattr(Quartz, "CGPreflightListenEventAccess"):
+            if not Quartz.CGPreflightListenEventAccess():
+                Quartz.CGRequestListenEventAccess()  # Input Monitoring prompt
         transcribe.warm_up(self.config.model_repo)
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
@@ -73,6 +86,7 @@ class WhisperQuietApp(rumps.App):
     # -- PTT edges (called from the pynput listener thread) -----------------
 
     def _on_ptt_press(self) -> None:
+        print("PTT press", flush=True)
         if self._recording.is_set():
             return
         self._recording.set()

@@ -66,7 +66,8 @@ class PushToTalk:
         if self._tap is None:
             print(
                 "PTT tap creation failed — grant Input Monitoring in "
-                "System Settings → Privacy & Security, then relaunch."
+                "System Settings → Privacy & Security, then relaunch.",
+                flush=True,
             )
             return
         source = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
@@ -74,6 +75,7 @@ class PushToTalk:
             Quartz.CFRunLoopGetMain(), source, Quartz.kCFRunLoopCommonModes
         )
         Quartz.CGEventTapEnable(self._tap, True)
+        print("PTT tap installed (keycode", self._keycode, ")", flush=True)
 
     def _handle(self, proxy, etype, event, refcon):
         try:
