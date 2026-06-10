@@ -142,3 +142,13 @@ Live smoke: relaunch + camera on, frames flowing.
 
 Backlog (ranked next): audio tick on gesture fire; jaw-shift app switcher;
 login item + onboarding checklist; per-app injection profiles; Swift port.
+
+## Dogfood feedback layer (2026-06-10 night)
+
+Flag key (right-Shift) → feedback.jsonl with recent-event ring; synthetic
+events tagged so the tap measures only real input: typing ≤8s after a
+dictation commit = dictation_edited, physical mouse during camera control =
+trackpad_touch episodes. scripts/report.py (wq-report) renders the daily
+scorecard with PASS/FAIL vs the DESIGN.md bar. Suite 83 passed, 3 skipped.
+Next-round candidate for true WER: opt-in audio retention per dictation
+(pairs with the LoRA flywheel).
