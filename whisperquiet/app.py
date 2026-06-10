@@ -20,7 +20,11 @@ class WhisperQuietApp(rumps.App):
         self.config = config_mod.load()
         config_mod.save(self.config)  # write defaults on first run
         self.status_item = rumps.MenuItem("Status: loading model…")
-        self.menu = [self.status_item, None]
+        self.camera_item = rumps.MenuItem(
+            "Camera Control (beta)", callback=self._toggle_camera
+        )
+        self.menu = [self.status_item, self.camera_item, None]
+        self._camera = None
 
         self.recorder = MicRecorder()
         self.overlay = Overlay()
@@ -54,6 +58,30 @@ class WhisperQuietApp(rumps.App):
 
     def _on_ptt_release(self) -> None:
         self._recording.clear()
+
+    def _toggle_camera(self, item: rumps.MenuItem) -> None:
+        # deferred import: mediapipe/opencv load only if the mode is used
+        from .vision.controller import CameraController
+
+        if self._camera is None or not self._camera.active:
+            if self._camera is None:
+                self._camera = CameraController(
+                    jaw_toggle_dictation=bool(
+                        self.config.gestures.get("jaw_toggle_dictation", False)
+                    ),
+                    on_toggle_dictation=self._toggle_dictation,
+                )
+            self._camera.start()
+            item.state = 1
+        else:
+            self._camera.stop()
+            item.state = 0
+
+    def _toggle_dictation(self) -> None:
+        if self._recording.is_set():
+            self._on_ptt_release()
+        else:
+            self._on_ptt_press()
 
     def _level_loop(self) -> None:
         while self._recording.is_set():
