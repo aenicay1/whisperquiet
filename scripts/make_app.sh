@@ -35,10 +35,20 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Copy the real interpreter INTO the bundle so the running process lives at
+# WhisperQuiet.app/Contents/MacOS/* — TCC prompts then say "WhisperQuiet",
+# not "Python". (The framework is referenced by absolute path, so the copied
+# binary still finds it.)
+REAL_BIN="$(dirname "$(readlink -f "$REPO/.venv/bin/python")")/../Resources/Python.app/Contents/MacOS/Python"
+cp -f "$REAL_BIN" "$APP/Contents/MacOS/whisperquiet-bin"
+
+PYVER="$("$REPO/.venv/bin/python" -c 'import sys;print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
 cat > "$APP/Contents/MacOS/whisperquiet" <<LAUNCHER
 #!/bin/bash
+DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 exec >> "\$HOME/Library/Logs/whisperquiet.log" 2>&1
-exec "$REPO/.venv/bin/whisperquiet"
+export PYTHONPATH="$REPO:$REPO/.venv/lib/python$PYVER/site-packages"
+exec "\$DIR/whisperquiet-bin" -m whisperquiet.app
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/whisperquiet"
 
