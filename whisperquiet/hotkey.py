@@ -13,6 +13,8 @@ from collections.abc import Callable
 import Quartz
 from PyObjCTools import AppHelper
 
+from .inject import SYNTHETIC_TAG
+
 # minimal name → virtual keycode map (extend as needed)
 KEYCODES = {
     "alt_r": 61,
@@ -39,11 +41,20 @@ class PushToTalk:
         key_name: str,
         on_press: Callable[[], None],
         on_release: Callable[[], None],
+        flag_key_name: str | None = None,
+        on_flag: Callable[[], None] | None = None,
+        on_physical_key: Callable[[], None] | None = None,
+        on_physical_mouse: Callable[[], None] | None = None,
     ) -> None:
         self._keycode = KEYCODES.get(key_name, KEYCODES["alt_r"])
         self._on_press = on_press
         self._on_release = on_release
+        self._flag_keycode = KEYCODES.get(flag_key_name) if flag_key_name else None
+        self._on_flag = on_flag
+        self._on_physical_key = on_physical_key
+        self._on_physical_mouse = on_physical_mouse
         self._held = False
+        self._flag_held = False
         self._tap = None
 
     def start(self) -> None:
@@ -54,6 +65,10 @@ class PushToTalk:
             Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
+            | Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved)
+            | Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown)
+            | Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown)
+            | Quartz.CGEventMaskBit(Quartz.kCGEventScrollWheel)
         )
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
@@ -77,11 +92,44 @@ class PushToTalk:
         Quartz.CGEventTapEnable(self._tap, True)
         print("PTT tap installed (keycode", self._keycode, ")", flush=True)
 
+    _MOUSE_TYPES = (
+        Quartz.kCGEventMouseMoved,
+        Quartz.kCGEventLeftMouseDown,
+        Quartz.kCGEventRightMouseDown,
+        Quartz.kCGEventScrollWheel,
+    )
+
     def _handle(self, proxy, etype, event, refcon):
         try:
+            if (
+                Quartz.CGEventGetIntegerValueField(
+                    event, Quartz.kCGEventSourceUserData
+                )
+                == SYNTHETIC_TAG
+            ):
+                return event  # our own output, not user input
+            if etype in self._MOUSE_TYPES:
+                if self._on_physical_mouse is not None:
+                    self._on_physical_mouse()
+                return event
             keycode = Quartz.CGEventGetIntegerValueField(
                 event, Quartz.kCGKeyboardEventKeycode
             )
+            if etype == Quartz.kCGEventKeyDown and self._on_physical_key is not None:
+                if not Quartz.CGEventGetIntegerValueField(
+                    event, Quartz.kCGKeyboardEventAutorepeat
+                ):
+                    self._on_physical_key()
+            if (
+                self._flag_keycode is not None
+                and keycode == self._flag_keycode
+                and etype == Quartz.kCGEventFlagsChanged
+            ):
+                flag = _MODIFIER_FLAGS.get(self._flag_keycode, 0)
+                held = bool(Quartz.CGEventGetFlags(event) & flag)
+                if held and not self._flag_held and self._on_flag is not None:
+                    self._on_flag()
+                self._flag_held = held
             if keycode == self._keycode:
                 if etype == Quartz.kCGEventFlagsChanged:
                     flag = _MODIFIER_FLAGS.get(self._keycode, 0)

@@ -6,6 +6,15 @@ import time
 
 import Quartz
 
+SYNTHETIC_TAG = 0x57510001  # marks our events so the feedback tap ignores them
+
+
+def _post(event) -> None:
+    Quartz.CGEventSetIntegerValueField(
+        event, Quartz.kCGEventSourceUserData, SYNTHETIC_TAG
+    )
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+
 # True between left_down() and left_up(); move_by() then posts drag events so
 # the OS treats the motion as a drag, not a plain move.
 _dragging = False
@@ -34,7 +43,7 @@ def move(x: float, y: float) -> None:
     event = Quartz.CGEventCreateMouseEvent(
         None, Quartz.kCGEventMouseMoved, (x, y), Quartz.kCGMouseButtonLeft
     )
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    _post(event)
 
 
 def move_by(dx: float, dy: float) -> None:
@@ -51,7 +60,7 @@ def move_by(dx: float, dy: float) -> None:
     event = Quartz.CGEventCreateMouseEvent(
         None, kind, (nx, ny), Quartz.kCGMouseButtonLeft
     )
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    _post(event)
 
 
 def left_down() -> None:
@@ -60,7 +69,7 @@ def left_down() -> None:
     event = Quartz.CGEventCreateMouseEvent(
         None, Quartz.kCGEventLeftMouseDown, position(), Quartz.kCGMouseButtonLeft
     )
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    _post(event)
     _dragging = True
 
 
@@ -71,7 +80,7 @@ def left_up() -> None:
     event = Quartz.CGEventCreateMouseEvent(
         None, Quartz.kCGEventLeftMouseUp, position(), Quartz.kCGMouseButtonLeft
     )
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    _post(event)
 
 
 def click(button: str = "left") -> None:
@@ -79,7 +88,7 @@ def click(button: str = "left") -> None:
     pos = position()
     for kind in (down, up):
         event = Quartz.CGEventCreateMouseEvent(None, kind, pos, btn)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+        _post(event)
 
 
 def double_click() -> None:
@@ -104,7 +113,7 @@ def double_click() -> None:
         Quartz.CGEventSetIntegerValueField(
             event, Quartz.kCGMouseEventClickState, state
         )
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+        _post(event)
 
 
 def scroll(dy: int) -> None:
@@ -112,4 +121,4 @@ def scroll(dy: int) -> None:
     event = Quartz.CGEventCreateScrollWheelEvent(
         None, Quartz.kCGScrollEventUnitLine, 1, dy
     )
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    _post(event)

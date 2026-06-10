@@ -12,8 +12,10 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 
 @dataclass
 class Config:
-    # pynput key name for push-to-talk (see pynput.keyboard.Key members)
+    # key names from hotkey.KEYCODES
     ptt_key: str = "alt_r"
+    # tap this key right after a bad gesture/dictation to flag it for review
+    flag_key: str = "shift_r"
     # HuggingFace repo for the MLX whisper model
     model_repo: str = "mlx-community/whisper-large-v3-turbo"
     language: str = "en"

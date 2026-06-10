@@ -10,6 +10,7 @@ import rumps
 from . import config as config_mod
 from . import inject, transcribe
 from .audio import MicRecorder
+from .feedback import FeedbackLog
 from .stats import SessionStats
 from .hotkey import PushToTalk
 from .overlay import NotchIndicator, Overlay
@@ -31,6 +32,12 @@ class WhisperQuietApp(rumps.App):
         self._camera = None
 
         self.stats = SessionStats()
+        self.feedback = FeedbackLog()
+        self._last_commit_t = 0.0
+        self._last_words = 0
+        self._edit_keys = 0
+        self._edit_logged = True
+        self._last_phys_mouse = 0.0
         self.recorder = MicRecorder()
         self.overlay = Overlay()
         self.indicator = NotchIndicator()
@@ -38,7 +45,13 @@ class WhisperQuietApp(rumps.App):
         self._worker: threading.Thread | None = None
 
         self.ptt = PushToTalk(
-            self.config.ptt_key, self._on_ptt_press, self._on_ptt_release
+            self.config.ptt_key,
+            self._on_ptt_press,
+            self._on_ptt_release,
+            flag_key_name=self.config.flag_key,
+            on_flag=self._flag,
+            on_physical_key=self._physical_key,
+            on_physical_mouse=self._physical_mouse,
         )
         threading.Thread(target=self._warm_up, daemon=True).start()
         threading.Thread(target=self._watch_triggers, daemon=True).start()
@@ -102,6 +115,34 @@ class WhisperQuietApp(rumps.App):
         transcribe.warm_up(self.config.model_repo)
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
+
+    # -- dogfood feedback (called from the event tap, main thread) ----------
+
+    def _flag(self) -> None:
+        """User tapped the flag key right after something misbehaved."""
+        self.feedback.log("flag", {"recent": self.stats.recent()})
+        self.stats.record("flag")
+        self.overlay.show()
+        self.overlay.update("🚩 flagged")
+        threading.Timer(0.9, self.overlay.hide).start()
+
+    def _physical_key(self) -> None:
+        if time.monotonic() - self._last_commit_t < 8.0:
+            self._edit_keys += 1
+            if self._edit_keys >= 4 and not self._edit_logged:
+                self._edit_logged = True
+                self.stats.record("dictation_edited")
+                self.feedback.log(
+                    "dictation_edited",
+                    {"words": self._last_words, "keys": self._edit_keys},
+                )
+
+    def _physical_mouse(self) -> None:
+        now = time.monotonic()
+        camera_on = self._camera is not None and self._camera.active
+        if camera_on and now - self._last_phys_mouse > 1.0:
+            self.stats.record("trackpad_touch")
+        self._last_phys_mouse = now
 
     # -- PTT edges (called from the pynput listener thread) -----------------
 
@@ -232,6 +273,10 @@ class WhisperQuietApp(rumps.App):
             inject.type_text(final, cfg.inject_mode)
             self.stats.record("dictation")
             self.stats.record("words", len(final.split()))
+            self._last_commit_t = time.monotonic()
+            self._last_words = len(final.split())
+            self._edit_keys = 0
+            self._edit_logged = False
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
 
     def _recording_wait(self, seconds: float) -> None:
