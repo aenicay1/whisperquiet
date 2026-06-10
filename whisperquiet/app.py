@@ -46,7 +46,11 @@ class WhisperQuietApp(rumps.App):
 
         camera = config_mod.CONFIG_DIR / "trigger-camera"
         calibrate = config_mod.CONFIG_DIR / "trigger-calibrate"
+        quit_file = config_mod.CONFIG_DIR / "trigger-quit"
         while True:
+            if quit_file.exists():
+                quit_file.unlink(missing_ok=True)
+                AppHelper.callAfter(rumps.quit_application)
             if camera.exists():
                 camera.unlink(missing_ok=True)
                 AppHelper.callAfter(self._toggle_camera, self.camera_item)
@@ -79,6 +83,13 @@ class WhisperQuietApp(rumps.App):
         if hasattr(Quartz, "CGPreflightListenEventAccess"):
             if not Quartz.CGPreflightListenEventAccess():
                 Quartz.CGRequestListenEventAccess()  # Input Monitoring prompt
+        import AVFoundation as AV
+        mic = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeAudio)
+        print("mic status:", mic, "(3=authorized)", flush=True)
+        if mic == 0:
+            AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+                AV.AVMediaTypeAudio, lambda granted: print("mic granted:", granted, flush=True)
+            )
         transcribe.warm_up(self.config.model_repo)
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
