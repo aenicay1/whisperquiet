@@ -130,3 +130,15 @@ Live smoke: app stable through camera-mode on → 15s capture → off; no log er
 
 **MVP remaining:** the dogfood week against DESIGN.md success bar. Everything
 else (Swift port, voice onboarding/LoRA, gaze) is post-MVP.
+
+## UX round (2026-06-10 evening, 3 self-correcting agents + integrator)
+
+Shipped: double-wink double-click (clickState=2), cheek-puff pause/resume
+(only gesture live while paused), nod=Return / shake=Escape (oscillation
+detector, slow pans inert), scroll momentum (0.15s→0.05s over 2s),
+vocabulary biasing (config.vocabulary → whisper initial_prompt), session
+stats JSONL for the dogfood success bar. Suite 76 passed, 3 skipped.
+Live smoke: relaunch + camera on, frames flowing.
+
+Backlog (ranked next): audio tick on gesture fire; jaw-shift app switcher;
+login item + onboarding checklist; per-app injection profiles; Swift port.
