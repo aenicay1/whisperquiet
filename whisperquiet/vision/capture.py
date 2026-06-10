@@ -44,6 +44,7 @@ class FaceCapture:
         self._camera_index = camera_index
         self._running = threading.Event()
         self._thread: threading.Thread | None = None
+        self._cap = None
         self._landmarker = None
         self._fps = 0.0
         self._last_result_t: float | None = None
@@ -62,35 +63,61 @@ class FaceCapture:
             result_callback=self._on_result,
         )
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
-        self._running.set()
-        self._thread = threading.Thread(target=self._read_loop, daemon=True)
+        # fresh Event per session: re-setting a shared one can revive a
+        # half-stopped old loop, which then starves the new camera session
+        running = threading.Event()
+        running.set()
+        self._running = running
+        self._cap = cv2.VideoCapture(self._camera_index)
+        self._thread = threading.Thread(
+            target=self._read_loop,
+            args=(self._cap, running, self._landmarker),
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> None:
         self._running.clear()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
+        thread, cap = self._thread, self._cap
+        if thread is not None:
+            thread.join(timeout=2.0)
+            if thread.is_alive() and cap is not None:
+                # cap.read() blocks indefinitely when the stream stalls;
+                # releasing the device forces it to return so the thread exits
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                thread.join(timeout=2.0)
+        self._thread, self._cap = None, None
         if self._landmarker is not None:
             self._landmarker.close()
             self._landmarker = None
 
-    def _read_loop(self) -> None:
+    def _read_loop(self, cap, running, landmarker) -> None:
         import mediapipe as mp
 
-        cap = cv2.VideoCapture(self._camera_index)
         try:
             t0 = time.monotonic()
-            while self._running.is_set():
+            last_ts = -1
+            while running.is_set():
                 ok, frame_bgr = cap.read()
                 if not ok:
-                    time.sleep(0.01)
+                    if not running.is_set():
+                        break
+                    time.sleep(0.05)
                     continue
                 ts_ms = int((time.monotonic() - t0) * 1000)
+                if ts_ms <= last_ts:  # mediapipe requires strictly increasing
+                    ts_ms = last_ts + 1
+                last_ts = ts_ms
                 rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 self._sent_at[ts_ms] = time.monotonic()
-                self._landmarker.detect_async(image, ts_ms)
+                try:
+                    landmarker.detect_async(image, ts_ms)
+                except Exception:
+                    break  # landmarker closed under us: session is over
         finally:
             cap.release()
 

@@ -10,6 +10,7 @@ posts.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 
@@ -50,6 +51,8 @@ class CameraController:
         self._calibrated = False
         self._frame_count = 0
         self._last_scroll_t = 0.0
+        self._last_frame_t = 0.0
+        self._last_restart_t = 0.0
 
     def start(self) -> None:
         self._frame_count = 0
@@ -62,8 +65,30 @@ class CameraController:
             self.hud.set_status("idle")
         else:
             self._begin_wizard()
+        self._last_frame_t = time.monotonic()
         self.capture.start()
         self.active = True
+        threading.Thread(target=self._watchdog, daemon=True).start()
+
+    def _watchdog(self) -> None:
+        """Restart the camera session if frames stop flowing (a stalled
+        AVFoundation stream blocks cv2.VideoCapture.read forever)."""
+        while self.active:
+            time.sleep(2.0)
+            stalled = time.monotonic() - self._last_frame_t > 4.0
+            cooled = time.monotonic() - self._last_restart_t > 10.0
+            if self.active and stalled and cooled:
+                print("camera stalled — restarting capture", flush=True)
+                self._last_restart_t = time.monotonic()
+                self.hud.set_instruction("camera stalled — restarting…")
+                try:
+                    self.capture.stop()
+                    self._last_frame_t = time.monotonic()
+                    self.capture.start()
+                except Exception as exc:
+                    print("camera restart failed:", exc, flush=True)
+                else:
+                    self.hud.set_instruction(None)
 
     def toggle_cursor(self) -> bool:
         """Flip head-cursor mode; returns the new state."""
@@ -110,6 +135,9 @@ class CameraController:
 
     def _on_frame(self, frame: FaceFrame) -> None:
         self._frame_count += 1
+        self._last_frame_t = time.monotonic()
+        if self._frame_count == 1:
+            print("camera frames flowing", flush=True)
         self.hud.update_landmarks(frame.landmarks[::LANDMARK_STRIDE, :2])
         if self._frame_count % 15 == 0:
             self.hud.set_metrics(frame.fps, frame.latency_ms)
