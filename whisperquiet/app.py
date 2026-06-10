@@ -11,7 +11,7 @@ from . import config as config_mod
 from . import inject, transcribe
 from .audio import MicRecorder
 from .hotkey import PushToTalk
-from .overlay import Overlay
+from .overlay import NotchIndicator, Overlay
 
 
 class WhisperQuietApp(rumps.App):
@@ -24,6 +24,7 @@ class WhisperQuietApp(rumps.App):
 
         self.recorder = MicRecorder()
         self.overlay = Overlay()
+        self.indicator = NotchIndicator()
         self._recording = threading.Event()
         self._worker: threading.Thread | None = None
 
@@ -46,11 +47,18 @@ class WhisperQuietApp(rumps.App):
         self.status_item.title = "Status: listening"
         self.recorder.start()
         self.overlay.show()
+        self.indicator.show()
         self._worker = threading.Thread(target=self._stream_loop, daemon=True)
         self._worker.start()
+        threading.Thread(target=self._level_loop, daemon=True).start()
 
     def _on_ptt_release(self) -> None:
         self._recording.clear()
+
+    def _level_loop(self) -> None:
+        while self._recording.is_set():
+            self.indicator.set_level(self.recorder.level())
+            time.sleep(0.08)
 
     # -- streaming worker ----------------------------------------------------
 
@@ -67,6 +75,7 @@ class WhisperQuietApp(rumps.App):
             self._recording_wait(cfg.stream_interval)
 
         audio = self.recorder.stop()
+        self.indicator.hide()
         self.status_item.title = "Status: finishing…"
         final = transcribe.transcribe(audio, cfg.model_repo, cfg.language)
         if final:

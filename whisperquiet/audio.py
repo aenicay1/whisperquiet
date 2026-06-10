@@ -38,6 +38,23 @@ class MicRecorder:
                 return np.zeros(0, dtype=np.float32)
             return np.concatenate(self._chunks)[:, 0]
 
+    def level(self) -> float:
+        """Mic level 0..1 over the last ~150ms, scaled for quiet speech."""
+        window = int(SAMPLE_RATE * 0.15)
+        with self._lock:
+            tail: list[np.ndarray] = []
+            total = 0
+            for chunk in reversed(self._chunks):
+                tail.append(chunk[:, 0])
+                total += chunk.shape[0]
+                if total >= window:
+                    break
+        if not tail:
+            return 0.0
+        samples = np.concatenate(tail[::-1])[-window:]
+        rms = float(np.sqrt(np.mean(np.square(samples))))
+        return min(1.0, rms / 0.04)
+
     def stop(self) -> np.ndarray:
         if self._stream is not None:
             self._stream.stop()
