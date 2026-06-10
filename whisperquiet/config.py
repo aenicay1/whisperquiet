@@ -23,6 +23,8 @@ class Config:
     inject_mode: str = "keystrokes"
     # Gesture/cursor settings land here in week 3-4 (see whisperquiet/control/)
     gestures: dict = field(default_factory=dict)
+    # Names/jargon the user dictates often; biases the whisper decoder
+    vocabulary: list[str] = field(default_factory=list)
 
 
 def load() -> Config:

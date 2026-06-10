@@ -10,6 +10,7 @@ import rumps
 from . import config as config_mod
 from . import inject, transcribe
 from .audio import MicRecorder
+from .stats import SessionStats
 from .hotkey import PushToTalk
 from .overlay import NotchIndicator, Overlay
 
@@ -29,6 +30,7 @@ class WhisperQuietApp(rumps.App):
         self.menu = [self.status_item, self.camera_item, self.cursor_item, None]
         self._camera = None
 
+        self.stats = SessionStats()
         self.recorder = MicRecorder()
         self.overlay = Overlay()
         self.indicator = NotchIndicator()
@@ -143,6 +145,7 @@ class WhisperQuietApp(rumps.App):
                 on_toggle_dictation=self._toggle_dictation,
                 saved_calibration=self.config.gestures.get("calibration"),
                 on_calibrated=self._save_calibration,
+                stats=self.stats,
             )
         self._camera.start()
         item.state = 1
@@ -205,7 +208,9 @@ class WhisperQuietApp(rumps.App):
         last_partial, last_size = "", -1
         while self._recording.is_set():
             snap = self.recorder.snapshot()
-            partial = transcribe.transcribe(snap, cfg.model_repo, cfg.language)
+            partial = transcribe.transcribe(
+                snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+            )
             if partial:
                 self.overlay.update(partial)
                 last_partial, last_size = partial, snap.size
@@ -220,9 +225,13 @@ class WhisperQuietApp(rumps.App):
         elif rms < 2e-4:
             final = last_partial  # near-silence: don't let whisper hallucinate
         else:
-            final = transcribe.transcribe(audio, cfg.model_repo, cfg.language)
+            final = transcribe.transcribe(
+                audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+            )
         if final:
             inject.type_text(final, cfg.inject_mode)
+            self.stats.record("dictation")
+            self.stats.record("words", len(final.split()))
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
 
     def _recording_wait(self, seconds: float) -> None:

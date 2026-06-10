@@ -14,9 +14,11 @@ import threading
 import time
 from collections.abc import Callable
 
+from .. import inject
 from ..control import mouse
 from ..control.gestures import GestureEngine, GestureEvent
 from ..control.head_cursor import HeadCursor
+from ..control.head_gestures import NodShakeDetector
 from .calibration import CalibrationWizard, config_from_saved
 from .capture import FaceCapture, FaceFrame
 from .hud import HUD, flash_label
@@ -35,7 +37,9 @@ class CameraController:
         on_toggle_dictation: Callable[[], None] | None = None,
         saved_calibration: dict | None = None,
         on_calibrated: Callable[[dict], None] | None = None,
+        stats=None,
     ) -> None:
+        self._stats = stats
         self._jaw_enabled = jaw_toggle_dictation
         self._on_toggle_dictation = on_toggle_dictation
         self._saved_calibration = saved_calibration or None
@@ -44,7 +48,9 @@ class CameraController:
         self.engine = GestureEngine(self._on_event)
         self.capture = FaceCapture(self._on_frame)
         self.head = HeadCursor()
+        self._nodshake = NodShakeDetector()
         self.cursor_enabled = False
+        self.paused = False
         self._dragging = False
         self.active = False
         self._wizard: CalibrationWizard | None = None
@@ -103,7 +109,13 @@ class CameraController:
         return self.cursor_enabled
 
     def _idle_status(self) -> str:
+        if self.paused:
+            return "paused"
         return "cursor" if self.cursor_enabled else "idle"
+
+    def _record(self, kind: str) -> None:
+        if self._stats is not None:
+            self._stats.record(kind)
 
     def stop(self) -> None:
         self.active = False
@@ -162,9 +174,19 @@ class CameraController:
         t = frame.timestamp_ms / 1000.0
         self.engine.process(frame.blendshapes, t)
         self.hud.set_gesture_levels(self._gesture_levels(frame.blendshapes))
-        if self.cursor_enabled:
+        nose = frame.landmarks[NOSE_TIP]
+        if not self.paused:
+            head_gesture = self._nodshake.process(float(nose[0]), float(nose[1]), t)
+            if head_gesture == "nod":
+                inject.press_key(inject.KEY_RETURN)
+                self.hud.flash_event("ENTER")
+                self._record("nod")
+            elif head_gesture == "shake":
+                inject.press_key(inject.KEY_ESCAPE)
+                self.hud.flash_event("ESCAPE")
+                self._record("shake")
+        if self.cursor_enabled and not self.paused:
             self.head.set_precision(self.engine.winking)
-            nose = frame.landmarks[NOSE_TIP]
             delta = self.head.process(float(nose[0]), float(nose[1]), t)
             if delta is not None:
                 mouse.move_by(*delta)
@@ -194,23 +216,42 @@ class CameraController:
     # -- gesture events (capture thread) --------------------------------------
 
     def _on_event(self, event: GestureEvent) -> None:
+        if event is GestureEvent.PAUSE_TOGGLE:
+            self.paused = not self.paused
+            if self.paused and self._dragging:
+                mouse.left_up()
+                self._dragging = False
+            self.hud.flash_event("PAUSED" if self.paused else "RESUMED")
+            self.hud.set_status(self._idle_status())
+            self._record("pause")
+            return
+        if self.paused:
+            return  # cheek puff is the only gesture that acts while paused
         self.hud.flash_event(flash_label(event.value))
         if event is GestureEvent.LEFT_CLICK:
             mouse.click("left")
+            self._record("left_click")
+        elif event is GestureEvent.DOUBLE_CLICK:
+            mouse.double_click()
+            self._record("double_click")
         elif event is GestureEvent.RIGHT_CLICK:
             mouse.click("right")
+            self._record("right_click")
         elif event is GestureEvent.SCROLL_UP:
             mouse.scroll(SCROLL_LINES)
             self._mark_scrolling()
+            self._record("scroll")
         elif event is GestureEvent.SCROLL_DOWN:
             mouse.scroll(-SCROLL_LINES)
             self._mark_scrolling()
+            self._record("scroll")
         elif event is GestureEvent.DRAG_START:
             if self._jaw_enabled and self._on_toggle_dictation is not None:
                 self._on_toggle_dictation()  # jaw repurposed as dictation toggle
             else:
                 mouse.left_down()
                 self._dragging = True
+                self._record("drag")
         elif event is GestureEvent.DRAG_END:
             if self._dragging:
                 mouse.left_up()

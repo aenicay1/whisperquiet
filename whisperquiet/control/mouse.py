@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import Quartz
 
 # True between left_down() and left_up(); move_by() then posts drag events so
@@ -77,6 +79,31 @@ def click(button: str = "left") -> None:
     pos = position()
     for kind in (down, up):
         event = Quartz.CGEventCreateMouseEvent(None, kind, pos, btn)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+
+
+def double_click() -> None:
+    """Left double-click at the current position.
+
+    macOS only treats the second down/up pair as a double-click when the
+    events carry kCGMouseEventClickState (1, 1, 2, 2) — posting two plain
+    click() pairs reads as two single clicks.
+    """
+    pos = position()
+    for kind, state in (
+        (Quartz.kCGEventLeftMouseDown, 1),
+        (Quartz.kCGEventLeftMouseUp, 1),
+        (Quartz.kCGEventLeftMouseDown, 2),
+        (Quartz.kCGEventLeftMouseUp, 2),
+    ):
+        if state == 2 and kind == Quartz.kCGEventLeftMouseDown:
+            time.sleep(0.01)  # small gap between the pairs
+        event = Quartz.CGEventCreateMouseEvent(
+            None, kind, pos, Quartz.kCGMouseButtonLeft
+        )
+        Quartz.CGEventSetIntegerValueField(
+            event, Quartz.kCGMouseEventClickState, state
+        )
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 

@@ -15,6 +15,18 @@ import Quartz
 
 _CHUNK = 20  # CGEventKeyboardSetUnicodeString caps around 20 UTF-16 units
 
+# macOS virtual keycodes (Carbon HIToolbox Events.h).
+KEY_RETURN = 36
+KEY_ESCAPE = 53
+
+
+def press_key(keycode: int) -> None:
+    """Press and release one key by its real keycode. Return/Escape must go
+    through actual keycodes — apps match on them, not on unicode strings."""
+    for key_down in (True, False):
+        event = Quartz.CGEventCreateKeyboardEvent(None, keycode, key_down)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+
 
 def type_text(text: str, mode: str = "keystrokes") -> None:
     if not text:

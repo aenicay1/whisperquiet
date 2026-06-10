@@ -64,10 +64,12 @@ def test_long_eye_closure_fires_nothing():
 def test_brow_held_emits_scroll_up_at_repeat_cadence():
     engine, events = make_engine()
     run(engine, hold("browInnerUp", 0.8, start=0.0, duration=1.0, dt=0.01))
-    # first event after the 0.15s hold, then every 0.15s: 0.15..0.90 -> 6
-    # events (frame quantization can shift each fire by at most one 0.01s
-    # frame, which cannot change the count within the 1.0s window).
-    assert events == [GestureEvent.SCROLL_UP] * 6
+    # first event after the 0.15s hold, then accelerating repeats as the
+    # interval ramps from 0.15s toward scroll_repeat_min: fires at roughly
+    # 0.15/0.30/0.44/0.57/0.70/0.82/0.93 -> 7 events (frame quantization can
+    # only delay each fire by one 0.01s frame, which cannot change the count
+    # within the 1.0s window).
+    assert events == [GestureEvent.SCROLL_UP] * 7
 
 
 def test_brow_released_before_hold_time_fires_nothing():
@@ -117,6 +119,98 @@ def test_jaw_refractory_blocks_rapid_second_drag_start():
         GestureEvent.DRAG_START,
         GestureEvent.DRAG_END,
     ]
+
+
+def wink_left(engine, start):
+    """One left wink: press at `start`, release (the click fires) at start+0.1."""
+    engine.process({"eyeBlinkLeft": 0.7, "eyeBlinkRight": 0.1}, start)
+    engine.process({"eyeBlinkLeft": 0.1, "eyeBlinkRight": 0.1}, start + 0.1)
+
+
+def test_two_quick_left_winks_fire_left_click_then_double_click():
+    engine, events = make_engine()
+    wink_left(engine, 0.0)  # click at 0.1
+    wink_left(engine, 0.3)  # click at 0.4, within the 0.6s window
+    assert events == [GestureEvent.LEFT_CLICK, GestureEvent.DOUBLE_CLICK]
+
+
+def test_two_slow_left_winks_fire_two_left_clicks():
+    engine, events = make_engine()
+    wink_left(engine, 0.0)  # click at 0.1
+    wink_left(engine, 1.0)  # click at 1.1, past the 0.6s window
+    assert events == [GestureEvent.LEFT_CLICK, GestureEvent.LEFT_CLICK]
+
+
+def test_triple_quick_wink_double_click_resets_the_chain():
+    engine, events = make_engine()
+    wink_left(engine, 0.0)  # click at 0.1
+    wink_left(engine, 0.3)  # click at 0.4 -> double
+    wink_left(engine, 0.6)  # click at 0.7: chain reset, plain click again
+    assert events == [
+        GestureEvent.LEFT_CLICK,
+        GestureEvent.DOUBLE_CLICK,
+        GestureEvent.LEFT_CLICK,
+    ]
+
+
+def test_quick_right_winks_never_double_click():
+    engine, events = make_engine()
+    for start in (0.0, 0.3):
+        engine.process({"eyeBlinkLeft": 0.1, "eyeBlinkRight": 0.8}, start)
+        engine.process({"eyeBlinkLeft": 0.1, "eyeBlinkRight": 0.1}, start + 0.1)
+    assert events == [GestureEvent.RIGHT_CLICK, GestureEvent.RIGHT_CLICK]
+
+
+def test_cheek_puff_hold_fires_pause_toggle_once():
+    engine, events = make_engine()
+    run(engine, hold("cheekPuff", 0.8, start=0.0, duration=1.0))
+    assert events == [GestureEvent.PAUSE_TOGGLE]
+
+
+def test_cheek_puff_short_tap_fires_nothing():
+    engine, events = make_engine()
+    run(engine, hold("cheekPuff", 0.8, start=0.0, duration=0.2))
+    assert events == []
+
+
+def test_cheek_puff_refractory_blocks_rapid_second_toggle():
+    engine, events = make_engine()
+    run(engine, hold("cheekPuff", 0.8, start=0.0, duration=0.4))  # fires ~0.3
+    assert events == [GestureEvent.PAUSE_TOGGLE]
+    # re-puff immediately: hold time met at ~0.8s but the refractory (fired
+    # ~0.3s) runs to ~1.3s — no second toggle before the cooldown.
+    run(engine, hold("cheekPuff", 0.8, start=0.5, duration=0.7))
+    assert events == [GestureEvent.PAUSE_TOGGLE]
+    # held past the cooldown: the toggle fires again.
+    run(engine, hold("cheekPuff", 0.8, start=1.4, duration=0.5))
+    assert events == [GestureEvent.PAUSE_TOGGLE] * 2
+
+
+def test_scroll_acceleration_repeats_denser_later_in_the_hold():
+    engine, events = make_engine()
+
+    def feed(t0, t1):
+        before = len(events)
+        for i in range(int(round((t1 - t0) / 0.01))):
+            engine.process({"browInnerUp": 0.8}, t0 + i * 0.01)
+        return len(events) - before
+
+    first_half_second = feed(0.0, 0.5)
+    feed(0.5, 1.0)
+    second_second = feed(1.0, 2.0)  # window twice as long, so compare 2x
+    assert first_half_second > 0
+    assert second_second > 2 * first_half_second  # denser, not just longer
+
+
+def test_scroll_release_resets_acceleration():
+    engine, events = make_engine()
+    run(engine, hold("browInnerUp", 0.8, start=0.0, duration=2.0, dt=0.01))
+    after_long_hold = len(events)
+    # Fresh hold after release: the ramp restarts, so the first 0.4s gives
+    # the slow-cadence 2 events (~0.15/~0.30), not the ~6 a hold still at
+    # the minimum interval would.
+    run(engine, hold("browInnerUp", 0.8, start=2.5, duration=0.4, dt=0.01))
+    assert len(events) - after_long_hold == 2
 
 
 def test_winking_property_tracks_wink_phase():
