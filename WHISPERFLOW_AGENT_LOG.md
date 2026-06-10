@@ -81,3 +81,38 @@ encoder.
 Sources: github.com/amanvirparhar/chaplin · github.com/mpc001/auto_avsr ·
 github.com/roudimit/whisper-flamingo · arxiv.org/abs/2406.10082 ·
 arxiv.org/html/2502.01547v1 · arxiv.org/html/2509.23833v1
+
+## Deep-research synthesis: whispered-speech AVSR (salvaged 2026-06-10)
+
+Run died mid-verification at session cap; 123 extracted claims + partial
+adversarial verification salvaged from the journal. Convergent findings:
+
+1. **SNR reality kills the fusion case.** AV gains collapse in the 5–15 dB
+   café band: ~6% relative at 10 dB (TorchAudio AV-ASR), gains concentrate
+   at ≤0 dB and overlapping-speech interference. Noise-augmented *audio*
+   training recovers most robustness without any camera.
+2. **AISHELL6's own numbers undercut the lip-reading bet:** adding the visual
+   stream to whispered speech improved CER only 4.21% → 4.13% (~2% relative)
+   — in their clean studio, with frontal 720p video. The English transfer
+   result (wTIMIT, −1.85 abs WER) was **audio-only** (wTIMIT has no video).
+3. **The cheap win is audio-side:** stock Whisper ≈18.8% WER on whispered
+   English; fine-tuning on ~20h whispered data roughly halves it; a tiny
+   ConMamba hit 1.19% WER on wTIMIT. Whispered accuracy is fixable without
+   the camera.
+4. **Personalization is real and cheap:** 1–5 min of speaker data halves
+   speaker-dependent VSR error (GRID); LoRA ≈1% params/speaker; quantized
+   personalized Whisper runs on edge. → The flywheel pivots to AUDIO:
+   harvest the user's own whispered audio + corrected transcripts from
+   daily use, LoRA-fine-tune Whisper on-device (MLX). License-clean by
+   construction, fully private.
+5. **Licensing remains fatal for shipping VSR:** every strong visual
+   encoder rests on CC-BY-NC weights (AV-HuBERT) or research-only corpora
+   (LRS2/3, VoxCeleb2). On-device feasibility is proven (34.9M-param AV
+   model, RTF 0.87 on laptop CPU) — gains and licenses are the blockers,
+   not compute.
+
+**Verdict: kill criterion (≥30% rel. gain at 5–15 dB) NOT met. NO-GO on
+lip-reading fusion.** Camera = control; voice = text. New backlog item:
+personal whispered-audio LoRA flywheel. Cheapest next experiment: record
+~30–60 min of own whispered dictation w/ corrected transcripts, LoRA-tune
+whisper via MLX, measure WER vs stock.
