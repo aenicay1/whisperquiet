@@ -44,12 +44,26 @@ class WhisperQuietApp(rumps.App):
         (notch overflow) or for scripting."""
         from PyObjCTools import AppHelper
 
-        trigger = config_mod.CONFIG_DIR / "trigger-camera"
+        camera = config_mod.CONFIG_DIR / "trigger-camera"
+        calibrate = config_mod.CONFIG_DIR / "trigger-calibrate"
         while True:
-            if trigger.exists():
-                trigger.unlink(missing_ok=True)
+            if camera.exists():
+                camera.unlink(missing_ok=True)
                 AppHelper.callAfter(self._toggle_camera, self.camera_item)
+            if calibrate.exists():
+                calibrate.unlink(missing_ok=True)
+                AppHelper.callAfter(self._recalibrate)
             time.sleep(0.5)
+
+    def _recalibrate(self) -> None:
+        self.config.gestures.pop("calibration", None)
+        config_mod.save(self.config)
+        if self._camera is not None and self._camera.active:
+            self._camera.recalibrate()
+        else:
+            if self._camera is not None:
+                self._camera.recalibrate()  # drop stale saved thresholds
+            self._toggle_camera(self.camera_item)
 
     def _warm_up(self) -> None:
         transcribe.warm_up(self.config.model_repo)
@@ -89,9 +103,15 @@ class WhisperQuietApp(rumps.App):
                     self.config.gestures.get("jaw_toggle_dictation", False)
                 ),
                 on_toggle_dictation=self._toggle_dictation,
+                saved_calibration=self.config.gestures.get("calibration"),
+                on_calibrated=self._save_calibration,
             )
         self._camera.start()
         item.state = 1
+
+    def _save_calibration(self, persisted: dict) -> None:
+        self.config.gestures["calibration"] = persisted
+        config_mod.save(self.config)
 
     def _ensure_camera_permission(self, item: rumps.MenuItem) -> bool:
         """TCC camera prompt must come from this app's run loop — bare CLI

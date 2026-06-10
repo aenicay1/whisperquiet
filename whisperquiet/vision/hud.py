@@ -116,6 +116,7 @@ class HUD:
         self._metrics_label: AppKit.NSTextField | None = None
         self._bar_track: AppKit.NSView | None = None
         self._bar_fill: AppKit.NSView | None = None
+        self._instruction_label: AppKit.NSTextField | None = None
         self._throttle = UpdateThrottle(_LANDMARK_MAX_HZ)
 
     # -- public, thread-safe ------------------------------------------------
@@ -144,6 +145,10 @@ class HUD:
         AppHelper.callAfter(
             self._progress_main, None if fraction is None else float(fraction)
         )
+
+    def set_instruction(self, text: str | None) -> None:
+        """Wizard guidance line over the wireframe; None hides it."""
+        AppHelper.callAfter(self._instruction_main, text)
 
     # -- main thread only ---------------------------------------------------
 
@@ -244,8 +249,20 @@ class HUD:
         )
         content.addSubview_(metrics)
 
+        # Wizard instruction line (over the top of the canvas; hidden until set)
+        instruction = AppKit.NSTextField.wrappingLabelWithString_("")
+        instruction.setFrame_(
+            AppKit.NSMakeRect(_MARGIN + 6, bar_y - 8 - 34, _INNER_W - 12, 30)
+        )
+        instruction.setAlignment_(AppKit.NSTextAlignmentCenter)
+        instruction.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        instruction.setTextColor_(AppKit.NSColor.whiteColor())
+        instruction.setHidden_(True)
+        content.addSubview_(instruction)
+
         panel.setContentView_(content)
         self._panel = panel
+        self._instruction_label = instruction
         self._pill, self._pill_label = pill, pill_label
         self._bar_track, self._bar_fill = track, fill
         self._canvas, self._metrics_label = canvas, metrics
@@ -274,6 +291,11 @@ class HUD:
     def _metrics_main(self, fps: float, latency_ms: float) -> None:
         self._ensure_panel()
         self._metrics_label.setStringValue_(format_metrics(fps, latency_ms))
+
+    def _instruction_main(self, text: str | None) -> None:
+        self._ensure_panel()
+        self._instruction_label.setHidden_(text is None)
+        self._instruction_label.setStringValue_(text or "")
 
     def _progress_main(self, fraction: float | None) -> None:
         self._ensure_panel()

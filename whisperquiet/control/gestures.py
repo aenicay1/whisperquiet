@@ -50,6 +50,16 @@ class GestureConfig:
     jaw_off: float = 0.4
     jaw_hold: float = 0.4
     jaw_refractory: float = 1.0
+    # Per-gesture overrides set by the calibration wizard; None falls back
+    # to the shared wink/scroll values above.
+    wink_on_left: float | None = None
+    wink_off_left: float | None = None
+    wink_on_right: float | None = None
+    wink_off_right: float | None = None
+    brow_on: float | None = None
+    brow_off: float | None = None
+    pucker_on: float | None = None
+    pucker_off: float | None = None
 
 
 @dataclass
@@ -95,21 +105,41 @@ class GestureEngine:
         score = lambda key: max(  # noqa: E731
             0.0, blendshapes.get(key, 0.0) - self._baseline.get(key, 0.0)
         )
+        cfg = self.config
         left, right = score("eyeBlinkLeft"), score("eyeBlinkRight")
-        self._step_wink(self._left_wink, left, right, t, GestureEvent.LEFT_CLICK)
-        self._step_wink(self._right_wink, right, left, t, GestureEvent.RIGHT_CLICK)
-        self._step_repeat(self._brow, score("browInnerUp"), t, GestureEvent.SCROLL_UP)
+        self._step_wink(
+            self._left_wink, left, right, t, GestureEvent.LEFT_CLICK,
+            cfg.wink_on_left, cfg.wink_off_left,
+        )
+        self._step_wink(
+            self._right_wink, right, left, t, GestureEvent.RIGHT_CLICK,
+            cfg.wink_on_right, cfg.wink_off_right,
+        )
         self._step_repeat(
-            self._pucker, score("mouthPucker"), t, GestureEvent.SCROLL_DOWN
+            self._brow, score("browInnerUp"), t, GestureEvent.SCROLL_UP,
+            cfg.brow_on, cfg.brow_off,
+        )
+        self._step_repeat(
+            self._pucker, score("mouthPucker"), t, GestureEvent.SCROLL_DOWN,
+            cfg.pucker_on, cfg.pucker_off,
         )
         self._step_jaw(score("jawOpen"), t)
 
     def _step_wink(
-        self, s: _WinkState, own: float, other: float, t: float, event: GestureEvent
+        self,
+        s: _WinkState,
+        own: float,
+        other: float,
+        t: float,
+        event: GestureEvent,
+        on: float | None = None,
+        off: float | None = None,
     ) -> None:
         cfg = self.config
+        on = cfg.wink_on if on is None else on
+        off = cfg.wink_off if off is None else off
         if s.phase == "idle":
-            if own >= cfg.wink_on:
+            if own >= on:
                 if other <= cfg.wink_opposite_max:
                     s.phase, s.start = "winking", t
                 else:  # both eyes high = natural blink; suppress until release
@@ -117,21 +147,29 @@ class GestureEngine:
         elif s.phase == "winking":
             if other > cfg.wink_opposite_max:
                 s.phase = "cancelled"
-            elif own < cfg.wink_off:
+            elif own < off:
                 s.phase = "idle"
                 if t - s.start < cfg.wink_max_duration:
                     self.on_event(event)
-        elif s.phase == "cancelled" and own < cfg.wink_off:
+        elif s.phase == "cancelled" and own < off:
             s.phase = "idle"
 
     def _step_repeat(
-        self, s: _RepeatState, own: float, t: float, event: GestureEvent
+        self,
+        s: _RepeatState,
+        own: float,
+        t: float,
+        event: GestureEvent,
+        on: float | None = None,
+        off: float | None = None,
     ) -> None:
         cfg = self.config
+        on = cfg.scroll_on if on is None else on
+        off = cfg.scroll_off if off is None else off
         if not s.held:
-            if own >= cfg.scroll_on:
+            if own >= on:
                 s.held, s.next_fire = True, t + cfg.scroll_hold
-        elif own < cfg.scroll_off:
+        elif own < off:
             s.held = False
         elif t >= s.next_fire:
             self.on_event(event)

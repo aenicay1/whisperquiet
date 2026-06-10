@@ -1,9 +1,11 @@
 """Camera-control mode: glues FaceCapture → GestureEngine → mouse + HUD.
 
-Lifecycle: start() shows the HUD and begins a ~1.5s neutral-face calibration
-(averaged blendshapes become the engine baseline), then gestures go live.
-All callbacks arrive on capture/mediapipe worker threads; HUD methods are
-already thread-safe and mouse events are fire-and-forget Quartz posts.
+Lifecycle: start() shows the HUD; with no saved calibration it runs the
+guided CalibrationWizard (per-gesture personal thresholds, persisted via
+on_calibrated), otherwise it restores the saved thresholds and goes live
+immediately. All callbacks arrive on capture/mediapipe worker threads; HUD
+methods are already thread-safe and mouse events are fire-and-forget Quartz
+posts.
 """
 
 from __future__ import annotations
@@ -11,14 +13,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-import numpy as np
-
 from ..control import mouse
 from ..control.gestures import GestureEngine, GestureEvent
+from .calibration import CalibrationWizard, config_from_saved
 from .capture import FaceCapture, FaceFrame
 from .hud import HUD
 
-CALIBRATION_FRAMES = 45  # ~1.5s at 30fps
 SCROLL_LINES = 3
 LANDMARK_STRIDE = 4  # 468 → 117 points for the wireframe
 STATUS_REVERT_S = 0.6
@@ -29,24 +29,33 @@ class CameraController:
         self,
         jaw_toggle_dictation: bool = False,
         on_toggle_dictation: Callable[[], None] | None = None,
+        saved_calibration: dict | None = None,
+        on_calibrated: Callable[[dict], None] | None = None,
     ) -> None:
         self._jaw_enabled = jaw_toggle_dictation
         self._on_toggle_dictation = on_toggle_dictation
+        self._saved_calibration = saved_calibration or None
+        self._on_calibrated = on_calibrated or (lambda persisted: None)
         self.hud = HUD()
         self.engine = GestureEngine(self._on_event)
         self.capture = FaceCapture(self._on_frame)
         self.active = False
-        self._calibration: list[dict[str, float]] = []
+        self._wizard: CalibrationWizard | None = None
         self._calibrated = False
         self._frame_count = 0
         self._last_scroll_t = 0.0
 
     def start(self) -> None:
-        self._calibration, self._calibrated = [], False
         self._frame_count = 0
         self.hud.show()
-        self.hud.set_status("calibrating")
-        self.hud.set_calibration_progress(0.0)
+        if self._saved_calibration:
+            config, baseline = config_from_saved(self._saved_calibration)
+            self.engine = GestureEngine(self._on_event, config)
+            self.engine.set_baseline(baseline)
+            self._calibrated = True
+            self.hud.set_status("idle")
+        else:
+            self._begin_wizard()
         self.capture.start()
         self.active = True
 
@@ -54,7 +63,24 @@ class CameraController:
         self.active = False
         self.capture.stop()
         self.hud.set_status("camera off")
+        self.hud.set_instruction(None)
         self.hud.hide()
+
+    def recalibrate(self) -> None:
+        """Re-run the guided wizard (new lighting, glasses, different chair)."""
+        self._saved_calibration = None
+        if self.active:
+            self._begin_wizard()
+
+    def _begin_wizard(self) -> None:
+        self._calibrated = False
+        self._wizard = CalibrationWizard(on_instruction=self._on_instruction)
+        self.hud.set_status("calibrating")
+        self.hud.set_calibration_progress(0.0)
+
+    def _on_instruction(self, text: str, fraction: float) -> None:
+        self.hud.set_instruction(text)
+        self.hud.set_calibration_progress(fraction)
 
     # -- capture thread ------------------------------------------------------
 
@@ -65,20 +91,20 @@ class CameraController:
             self.hud.set_metrics(frame.fps, frame.latency_ms)
 
         if not self._calibrated:
-            self._calibration.append(frame.blendshapes)
-            self.hud.set_calibration_progress(
-                len(self._calibration) / CALIBRATION_FRAMES
-            )
-            if len(self._calibration) >= CALIBRATION_FRAMES:
-                keys = self._calibration[-1].keys()
-                baseline = {
-                    k: float(np.mean([c.get(k, 0.0) for c in self._calibration]))
-                    for k in keys
-                }
-                self.engine.set_baseline(baseline)
+            wizard = self._wizard
+            if wizard is None:
+                return
+            wizard.process(frame.blendshapes, frame.timestamp_ms / 1000.0)
+            if wizard.done:
+                config, persisted = wizard.build()
+                self.engine = GestureEngine(self._on_event, config)
+                self.engine.set_baseline(wizard.baseline())
+                self._wizard = None
                 self._calibrated = True
                 self.hud.set_calibration_progress(None)
+                self.hud.set_instruction(None)
                 self.hud.set_status("idle")
+                self._on_calibrated(persisted)
             return
 
         self.engine.process(frame.blendshapes, frame.timestamp_ms / 1000.0)
