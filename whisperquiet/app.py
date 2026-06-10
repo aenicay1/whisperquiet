@@ -100,6 +100,8 @@ class WhisperQuietApp(rumps.App):
         print("PTT press", flush=True)
         if self._recording.is_set():
             return
+        if self._worker is not None and self._worker.is_alive():
+            return  # previous session still finishing; drop this press
         self._recording.set()
         self.status_item.title = "Status: listening"
         self.recorder.start()
@@ -110,7 +112,11 @@ class WhisperQuietApp(rumps.App):
         threading.Thread(target=self._level_loop, daemon=True).start()
 
     def _on_ptt_release(self) -> None:
+        print("PTT release", flush=True)
         self._recording.clear()
+        # instant feedback: UI drops now, final transcription finishes unseen
+        self.indicator.hide()
+        self.overlay.hide()
 
     def _toggle_camera(self, item: rumps.MenuItem) -> None:
         if self._camera is not None and self._camera.active:
@@ -182,22 +188,27 @@ class WhisperQuietApp(rumps.App):
         cfg = self.config
         # Re-transcribe the growing buffer while the key is held. Naive but
         # fine for week 1; incremental decoding is a later optimization.
+        last_partial, last_size = "", -1
         while self._recording.is_set():
-            partial = transcribe.transcribe(
-                self.recorder.snapshot(), cfg.model_repo, cfg.language
-            )
+            snap = self.recorder.snapshot()
+            partial = transcribe.transcribe(snap, cfg.model_repo, cfg.language)
             if partial:
                 self.overlay.update(partial)
+                last_partial, last_size = partial, snap.size
             self._recording_wait(cfg.stream_interval)
 
         audio = self.recorder.stop()
-        self.indicator.hide()
         self.status_item.title = "Status: finishing…"
-        final = transcribe.transcribe(audio, cfg.model_repo, cfg.language)
+        import numpy as np
+        rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
+        if audio.size == last_size and last_partial:
+            final = last_partial  # nothing new since the last partial
+        elif rms < 2e-4:
+            final = last_partial  # near-silence: don't let whisper hallucinate
+        else:
+            final = transcribe.transcribe(audio, cfg.model_repo, cfg.language)
         if final:
-            self.overlay.update(final)
             inject.type_text(final, cfg.inject_mode)
-        self.overlay.hide()
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
 
     def _recording_wait(self, seconds: float) -> None:
