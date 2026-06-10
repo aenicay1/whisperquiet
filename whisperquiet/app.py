@@ -36,6 +36,20 @@ class WhisperQuietApp(rumps.App):
             self.config.ptt_key, self._on_ptt_press, self._on_ptt_release
         )
         threading.Thread(target=self._warm_up, daemon=True).start()
+        threading.Thread(target=self._watch_triggers, daemon=True).start()
+
+    def _watch_triggers(self) -> None:
+        """Out-of-band control: `touch <config dir>/trigger-camera` toggles
+        camera control. Escape hatch for when the menu bar icon is hidden
+        (notch overflow) or for scripting."""
+        from PyObjCTools import AppHelper
+
+        trigger = config_mod.CONFIG_DIR / "trigger-camera"
+        while True:
+            if trigger.exists():
+                trigger.unlink(missing_ok=True)
+                AppHelper.callAfter(self._toggle_camera, self.camera_item)
+            time.sleep(0.5)
 
     def _warm_up(self) -> None:
         transcribe.warm_up(self.config.model_repo)
