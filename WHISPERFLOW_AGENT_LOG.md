@@ -22,7 +22,7 @@ the existing package:
 | Visual HUD | AppKit panel: status pills, 117-pt wireframe (mirrored, 30Hz-throttled), metrics, calibration bar | `whisperquiet/vision/hud.py`, `tests/test_hud_smoke.py` (9 tests) | ✅ DONE |
 | Integration | capture → engine → mouse/HUD glue + menu toggle + 1.5s neutral-face calibration | `whisperquiet/vision/controller.py`, `app.py` wiring | ✅ DONE |
 | QA / Self-correction | synthetic-stream e2e, blink-suppression, race, latency-budget tests | `tests/test_integration.py` | ✅ DONE — 35 passed, 2 skipped (GUI/camera-gated) |
-| VSR Research | evaluate chaplin / AV-HuBERT-class local lip reading | memo below | RUNNING |
+| VSR Research | evaluate chaplin / AV-HuBERT-class local lip reading | memo below | ✅ DONE |
 
 ## Gesture map (merged: DESIGN.md decision #8 + new triggers)
 
@@ -46,3 +46,38 @@ the existing package:
 | Test suite | 0 failures | ✅ 35 passed, 2 skipped (gated: live camera, GUI panel) |
 
 *(table updated as results land)*
+
+## VSR research memo (June 2026)
+
+Question: can any local lip-reading/AVSR stack plausibly meet the DESIGN.md
+kill criterion (≥30% relative WER gain over audio-only whispered speech in
+café noise, fully on-device)?
+
+- **Chaplin** (MIT): visual-only Auto-AVSR checkpoint + local LLM cleanup.
+  19.1% WER on LRS3 under ideal conditions, much worse on real webcams.
+  Proves the pipeline runs on a Mac; wrong modality for us (we want fusion,
+  not visual-only).
+- **Auto-AVSR / AV-HuBERT**: ~250M params, RAM-trivial on M-series, real-time
+  mouth-crop frontend feasible. AV-HuBERT has the best noise-robustness
+  results (~50% relative at 0 dB babble) but weights are **CC-BY-NC** —
+  commercial blocker. No MLX/CoreML ports exist; PyTorch-MPS needed.
+- **Whisper-Flamingo / mWhisper-Flamingo**: visual cross-attention injected
+  into Whisper — architecturally the natural fit for our mlx-whisper stack.
+  Published: 12.6% → 5.6–7.0% WER at 0 dB babble (44–50% relative). Visual
+  encoder is AV-HuBERT (license caveat applies).
+- **AISHELL6-Whisper** (2025): first whispered-speech AVSR baseline
+  (Mandarin, 4.13% CER) — best evidence that whispered-audio+lips fusion
+  specifically works.
+
+**Verdict:** kill criterion is plausibly met only by a Whisper-Flamingo-style
+fusion, and published gains are at 0 dB SNR over *normal* speech — café noise
+is 5–15 dB where visual gains shrink, and whispering adds domain shift.
+Confidence ≥30% holds in our condition: **~35–45%**. Lip reading stays
+backlogged. Next step when revisited: benchmark Whisper-Flamingo (PyTorch/MPS,
+non-commercial eval) against mlx-whisper on recorded whispered-café samples;
+shipping would additionally require an MLX port + license-clean visual
+encoder.
+
+Sources: github.com/amanvirparhar/chaplin · github.com/mpc001/auto_avsr ·
+github.com/roudimit/whisper-flamingo · arxiv.org/abs/2406.10082 ·
+arxiv.org/html/2502.01547v1 · arxiv.org/html/2509.23833v1
