@@ -63,22 +63,22 @@ class WhisperQuietApp(rumps.App):
 
     # (value, min, max, step, label, group) — schema for the playground tab
     _TUNABLES = {
-        "cursor_gain": (3500, 1000, 8000, 100, "Cursor speed", "Cursor"),
-        "cursor_deadzone": (0.0015, 0.0005, 0.005, 0.0001, "Cursor deadzone", "Cursor"),
-        "precision_scale": (0.3, 0.1, 1.0, 0.05, "Aim slowdown factor", "Cursor"),
-        "wink_on": (0.6, 0.2, 0.9, 0.01, "Wink trigger", "Winks"),
-        "wink_off": (0.4, 0.1, 0.8, 0.01, "Wink release", "Winks"),
-        "wink_opposite_max": (0.3, 0.1, 0.8, 0.01, "Blink rejection", "Winks"),
-        "double_wink_window": (0.6, 0.3, 1.2, 0.05, "Double-click window", "Winks"),
-        "scroll_on": (0.5, 0.2, 0.9, 0.01, "Scroll trigger", "Scrolling"),
-        "scroll_off": (0.35, 0.1, 0.8, 0.01, "Scroll release", "Scrolling"),
-        "scroll_repeat": (0.15, 0.05, 0.4, 0.01, "Scroll start interval", "Scrolling"),
-        "scroll_repeat_min": (0.05, 0.02, 0.2, 0.01, "Scroll max-speed interval", "Scrolling"),
-        "jaw_on": (0.6, 0.3, 0.9, 0.01, "Drag trigger (jaw)", "Mouth"),
-        "jaw_hold": (0.4, 0.2, 1.0, 0.05, "Drag hold time", "Mouth"),
-        "puff_on": (0.5, 0.3, 0.9, 0.01, "Pause trigger (puff)", "Mouth"),
-        "puff_hold": (0.3, 0.15, 1.0, 0.05, "Pause hold time", "Mouth"),
-        "stream_interval": (0.7, 0.3, 2.0, 0.1, "Partial update interval", "Dictation"),
+        "cursor_gain": (3500, 1000, 8000, 100, "Cursor speed", "Cursor", "Pixels the cursor travels per unit of head movement. Higher = faster. Try 4000-5500 until crossing the screen feels effortless."),
+        "cursor_deadzone": (0.0015, 0.0005, 0.005, 0.0001, "Cursor deadzone", "Cursor", "Head jitter smaller than this is ignored so the cursor sits still when you do. Raise if it trembles at rest; lower if small moves get eaten."),
+        "precision_scale": (0.3, 0.1, 1.0, 0.05, "Aim slowdown factor", "Cursor", "Cursor speed multiplier while an eye is mid-wink (aiming). 0.3 = 70 percent slower for the landing. Set 1.0 to disable the slowdown."),
+        "wink_on": (0.6, 0.2, 0.9, 0.01, "Wink trigger", "Winks", "How closed an eye must be to start a wink. LOWER this if winks get missed; raise it if squinting fires clicks. Overrides calibration."),
+        "wink_off": (0.4, 0.1, 0.8, 0.01, "Wink release", "Winks", "How open the eye must be again to count as released - the click fires on release. Keep well below the trigger so winks do not stutter."),
+        "wink_opposite_max": (0.3, 0.1, 0.8, 0.01, "Blink rejection", "Winks", "If the OTHER eye also closes past this, it is a natural blink and nothing fires. Raise if blinks cause clicks; lower if winks get rejected."),
+        "double_wink_window": (0.6, 0.3, 1.2, 0.05, "Double-click window", "Winks", "Two left winks within this many seconds become a double-click. Raise if your double-winks land as two singles."),
+        "scroll_on": (0.5, 0.2, 0.9, 0.01, "Scroll trigger", "Scrolling", "How strong the brow-raise (up) or pucker (down) must be to start scrolling. Lower = easier to trigger. Overrides calibration."),
+        "scroll_off": (0.35, 0.1, 0.8, 0.01, "Scroll release", "Scrolling", "Relax below this to stop scrolling. The gap between trigger and release prevents flutter at the boundary."),
+        "scroll_repeat": (0.15, 0.05, 0.4, 0.01, "Scroll start interval", "Scrolling", "Seconds between scroll steps when the gesture is first held. Lower = faster scrolling from the start."),
+        "scroll_repeat_min": (0.05, 0.02, 0.2, 0.01, "Scroll max-speed interval", "Scrolling", "Top speed after about 2s of holding: one step per this many seconds. Lower = faster max; raise if you overshoot targets."),
+        "jaw_on": (0.6, 0.3, 0.9, 0.01, "Drag trigger (jaw)", "Mouth", "How wide the mouth must open to grab for a drag. Lower if drags will not start; raise if talking causes accidental grabs."),
+        "jaw_hold": (0.4, 0.2, 1.0, 0.05, "Drag hold time", "Mouth", "Seconds the mouth must stay open before the grab engages. Raise to filter accidental opens; lower for snappier drags."),
+        "puff_on": (0.5, 0.3, 0.9, 0.01, "Pause trigger (puff)", "Mouth", "How strong a cheek puff must be to pause or resume all camera control. The panic switch - reachable but not hair-trigger."),
+        "puff_hold": (0.3, 0.15, 1.0, 0.05, "Pause hold time", "Mouth", "Seconds the puff must be held to toggle pause. Raise if it toggles accidentally."),
+        "stream_interval": (0.7, 0.3, 2.0, 0.1, "Partial update interval", "Dictation", "How often the live preview re-transcribes while you hold the talk key. Lower = snappier preview, more compute and battery."),
     }
 
     def _stored_tunables(self) -> dict:
@@ -88,13 +88,13 @@ class WhisperQuietApp(rumps.App):
         stored = self._stored_tunables()
         legacy_gain = self.config.gestures.get("cursor_gain")
         state = {}
-        for key, (default, lo, hi, step, label, group) in self._TUNABLES.items():
+        for key, (default, lo, hi, step, label, group, desc) in self._TUNABLES.items():
             value = stored.get(key, default)
             if key == "cursor_gain" and key not in stored and legacy_gain:
                 value = legacy_gain
             state[key] = {
-                "value": value, "min": lo, "max": hi,
-                "step": step, "label": label, "group": group,
+                "value": value, "min": lo, "max": hi, "step": step,
+                "label": label, "group": group, "desc": desc,
             }
         return state
 
