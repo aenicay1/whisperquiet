@@ -113,6 +113,28 @@ class CameraController:
             self.hud.set_status(self._idle_status())
         return self.cursor_enabled
 
+    def apply_tunables(self, values: dict) -> None:
+        """Hot-apply numeric settings from the playground bridge."""
+        head_map = {
+            "cursor_gain": "gain_px",
+            "cursor_deadzone": "deadzone",
+            "precision_scale": "precision_scale",
+        }
+        # manual wink/scroll thresholds override the wizard's per-side values
+        clears = {
+            "wink_on": ("wink_on_left", "wink_on_right"),
+            "wink_off": ("wink_off_left", "wink_off_right"),
+            "scroll_on": ("brow_on", "pucker_on"),
+            "scroll_off": ("brow_off", "pucker_off"),
+        }
+        for key, value in values.items():
+            if key in head_map:
+                setattr(self.head.config, head_map[key], float(value))
+            elif hasattr(self.engine.config, key):
+                setattr(self.engine.config, key, float(value))
+                for cleared in clears.get(key, ()):
+                    setattr(self.engine.config, cleared, None)
+
     def _idle_status(self) -> str:
         if self.paused:
             return "paused"

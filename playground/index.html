@@ -274,6 +274,29 @@
   .diffbox .w.ins { color: var(--teal); text-decoration: underline; }
   .werline { font-family: var(--mono); font-size: 15px; letter-spacing: 1px; }
 
+  /* ---------- settings ---------- */
+  .setwrap { position: absolute; inset: 0; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .setgroup {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 26px; max-width: 720px; width: 100%;
+  }
+  .setgroup h2 { font-family: var(--mono); color: var(--teal); font-size: 13px; letter-spacing: 3px; margin-bottom: 10px; font-weight: normal; }
+  .setrow { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .setrow:last-child { border-bottom: none; }
+  .setrow .slabel { flex: 1; min-width: 130px; font-family: var(--mono); font-size: 12px; color: var(--txt); letter-spacing: 1px; }
+  .setrow .sval { width: 64px; min-width: 64px; font-family: var(--mono); font-size: 12px; color: var(--green); text-align: right; }
+  .setrow input[type=range] { flex: 2; min-width: 150px; height: 44px; accent-color: var(--teal); cursor: pointer; background: transparent; }
+  .setrow input[type=number] {
+    width: 96px; min-width: 96px; min-height: 44px;
+    background: var(--bg2); border: 1px solid var(--teal-dim); border-radius: 8px;
+    color: var(--txt); font-family: var(--mono); font-size: 14px; padding: 6px 10px;
+    outline: none; user-select: text; -webkit-user-select: text;
+  }
+  .setrow input[type=number]:focus { border-color: var(--teal); box-shadow: 0 0 10px rgba(64,223,210,.2); }
+  .setrow .sstatus { width: 84px; min-width: 84px; font-family: var(--mono); font-size: 11px; text-align: right; letter-spacing: 1px; }
+  .setrow .sstatus.ok { color: var(--green); }
+  .setrow .sstatus.err { color: var(--red); }
+
   /* ---------- ticker ---------- */
   #ticker {
     height: 36px; min-height: 36px;
@@ -315,6 +338,7 @@
     <button class="railbtn" data-drill="scroll">4 · SCROLL BAND<small>brow-raise / pucker precision</small></button>
     <button class="railbtn" data-drill="gesture">5 · GESTURE REACTION<small>threshold-tuning goldmine</small></button>
     <button class="railbtn" data-drill="dictation">6 · DICTATION WER<small>whisper accuracy scoring</small></button>
+    <button class="railbtn" data-drill="settings">SETTINGS ⚙<small>live app tuning · 127.0.0.1:8377</small></button>
     <button class="railbtn session" data-drill="session">SESSION<small>aggregate stats · export JSON</small></button>
   </aside>
 
@@ -442,7 +466,7 @@ function startDrill(name) {
   var starters = {
     target: startTargetClick, double: startDoubleClick, drag: startDragDrop,
     scroll: startScrollBand, gesture: startGestureReaction, dictation: startDictation,
-    session: showSession
+    settings: startSettings, session: showSession
   };
   if (starters[name]) active = starters[name]() || null;
   else goMenu();
@@ -1283,6 +1307,299 @@ function startDictation() {
   return {
     name: 'dictation',
     destroy: function () { done = true; }
+  };
+}
+
+/* ======================== SETTINGS TAB ======================== */
+
+var WQ_API = 'http://127.0.0.1:8377';
+var SETTINGS_GROUP_ORDER = ['Cursor', 'Winks', 'Scrolling', 'Mouth', 'Dictation'];
+
+function startSettings() {
+  var disposed = false;
+  var pollTimer = null, debounceTimer = null;
+  var spec = null;     // sanitized config: key -> {value,min,max,step,label,group}
+  var fetched = {};    // values from the last successful GET
+  var dirty = {};      // changed keys awaiting POST
+  var rows = {};       // key -> { range, num, val, status, okTimer }
+  var lineEl = null;
+
+  setBar('SETTINGS', 'connecting to whisperquiet on 127.0.0.1:8377…');
+
+  function toNum(v) {
+    if (v === '' || v == null) return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+
+  function sanitize(key, raw) {
+    var o = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+    var value = toNum(o.value); if (value == null) value = 0;
+    var min = toNum(o.min), max = toNum(o.max), step = toNum(o.step);
+    if (min == null) min = value === 0 ? 0 : Math.min(value / 4, value * 4);
+    if (max == null) max = value === 0 ? 1 : Math.max(value / 4, value * 4);
+    if (min > max) { var t = min; min = max; max = t; }
+    if (min === max) max = min + 1;
+    if (step == null || step <= 0) step = Math.abs(value) / 100 || (max - min) / 100 || 0.01;
+    value = Math.max(min, Math.min(max, value));
+    return {
+      value: value, min: min, max: max, step: step,
+      label: (typeof o.label === 'string' && o.label) ? o.label : key,
+      group: (typeof o.group === 'string' && o.group) ? o.group : 'Other'
+    };
+  }
+
+  function fmtVal(v) { return String(Math.round(v * 1000) / 1000); }
+
+  function setLine(msg) { if (lineEl) lineEl.textContent = msg; }
+
+  function flashStatus(key, text, cls) {
+    var r = rows[key]; if (!r) return;
+    r.status.textContent = text;
+    r.status.className = 'sstatus ' + cls;
+    if (r.okTimer) { clearTimeout(r.okTimer); r.okTimer = null; }
+    if (cls === 'ok') {
+      r.okTimer = setTimeout(function () {
+        r.okTimer = null;
+        r.status.textContent = '';
+        r.status.className = 'sstatus';
+      }, 1500);
+    }
+  }
+
+  function markDirty(key, v) {
+    if (!spec || !spec[key]) return;
+    spec[key].value = v;
+    dirty[key] = v;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(flush, 300);
+  }
+
+  function flush() {
+    debounceTimer = null;
+    var payload = dirty;
+    dirty = {};
+    var keys = Object.keys(payload);
+    if (!keys.length) return;
+    fetch(WQ_API + '/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    }).then(function (res) {
+      if (disposed) return;
+      if (!res || res.ok !== true) throw new Error('bad response');
+      for (var i = 0; i < keys.length; i++) flashStatus(keys[i], 'applied ✓', 'ok');
+      setLine('applied ' + keys.length + ' change' + (keys.length === 1 ? '' : 's') + ' ✓');
+      tick('settings ✓ ' + keys.join(','));
+    }).catch(function () {
+      if (disposed) return;
+      for (var i = 0; i < keys.length; i++) {
+        flashStatus(keys[i], 'offline?', 'err');
+        if (!(keys[i] in dirty)) dirty[keys[i]] = payload[keys[i]];  // retried on next change
+      }
+      setLine('apply failed — whisperquiet offline? values kept, retried on next change');
+      tick('settings POST failed');
+    });
+  }
+
+  function resetToFetched() {
+    Object.keys(fetched).forEach(function (key) {
+      var r = rows[key];
+      if (!r || !spec || !spec[key]) return;
+      var v = fetched[key];
+      if (spec[key].value !== v) {
+        r.range.value = v;
+        r.num.value = fmtVal(v);
+        r.val.textContent = fmtVal(v);
+        markDirty(key, v);
+      }
+    });
+    setLine('restored values from last fetch');
+  }
+
+  function buildRow(key) {
+    var s = spec[key];
+    var row = document.createElement('div');
+    row.className = 'setrow';
+
+    var label = document.createElement('span');
+    label.className = 'slabel';
+    label.textContent = s.label;
+
+    var val = document.createElement('span');
+    val.className = 'sval';
+    val.textContent = fmtVal(s.value);
+
+    var range = document.createElement('input');
+    range.type = 'range';
+    range.min = s.min; range.max = s.max; range.step = s.step; range.value = s.value;
+
+    var num = document.createElement('input');
+    num.type = 'number';
+    num.min = s.min; num.max = s.max; num.step = s.step; num.value = fmtVal(s.value);
+
+    var status = document.createElement('span');
+    status.className = 'sstatus';
+
+    range.addEventListener('input', function () {
+      var v = toNum(range.value); if (v == null) return;
+      num.value = fmtVal(v);
+      val.textContent = fmtVal(v);
+      markDirty(key, v);
+    });
+    num.addEventListener('input', function () {
+      var v = toNum(num.value); if (v == null) return;
+      range.value = v;
+      val.textContent = fmtVal(v);
+      markDirty(key, v);
+    });
+    num.addEventListener('change', function () {  // clamp on commit (blur / enter)
+      var v = toNum(num.value);
+      if (v == null) v = s.value;
+      v = Math.max(s.min, Math.min(s.max, v));
+      num.value = fmtVal(v);
+      range.value = v;
+      val.textContent = fmtVal(v);
+      markDirty(key, v);
+    });
+
+    row.appendChild(label);
+    row.appendChild(val);
+    row.appendChild(range);
+    row.appendChild(num);
+    row.appendChild(status);
+    rows[key] = { range: range, num: num, val: val, status: status, okTimer: null };
+    return row;
+  }
+
+  function render() {
+    clearArena();
+    rows = {};
+    var wrap = document.createElement('div');
+    wrap.className = 'setwrap';
+
+    var hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Changes apply to the running app instantly and persist across restarts.';
+    wrap.appendChild(hint);
+
+    var head = document.createElement('div');
+    head.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;justify-content:center';
+    var resetBtn = document.createElement('button');
+    resetBtn.className = 'bigbtn subtle';
+    resetBtn.textContent = 'RESET TO FETCHED';
+    head.appendChild(resetBtn);
+    wrap.appendChild(head);
+
+    lineEl = document.createElement('div');
+    lineEl.className = 'hint';
+    lineEl.textContent = Object.keys(spec).length + ' settings loaded — drag a slider to apply live';
+    wrap.appendChild(lineEl);
+
+    var groups = {};
+    Object.keys(spec).forEach(function (k) {
+      var g = spec[k].group;
+      (groups[g] = groups[g] || []).push(k);
+    });
+    var names = SETTINGS_GROUP_ORDER.filter(function (g) { return groups[g]; });
+    Object.keys(groups).sort().forEach(function (g) {
+      if (names.indexOf(g) === -1) names.push(g);
+    });
+
+    names.forEach(function (gname) {
+      var box = document.createElement('div');
+      box.className = 'setgroup';
+      var h = document.createElement('h2');
+      h.textContent = String(gname).toUpperCase();
+      box.appendChild(h);
+      groups[gname].forEach(function (key) { box.appendChild(buildRow(key)); });
+      wrap.appendChild(box);
+    });
+
+    arena.appendChild(wrap);
+    resetBtn.addEventListener('click', resetToFetched);
+  }
+
+  function showOffline() {
+    clearArena();
+    rows = {};
+    lineEl = null;
+    var div = document.createElement('div');
+    div.className = 'center-wrap';
+    div.innerHTML =
+      '<div class="card">' +
+        '<h2>SETTINGS — NOT CONNECTED</h2>' +
+        '<div style="font-size:15px;line-height:1.8;color:var(--txt-dim)">' +
+          'whisperquiet isn&#39;t running or is an older build &mdash; start it with ' +
+          '<span style="color:var(--teal);font-family:var(--mono)">wq-start</span>' +
+        '</div>' +
+        '<div class="btns"><button class="bigbtn" id="set-retry">RETRY</button></div>' +
+        '<div class="hint" style="margin-top:16px">retrying automatically every 3s…</div>' +
+      '</div>';
+    arena.appendChild(div);
+    $('#set-retry').addEventListener('click', function () {
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+      load();
+    });
+    setBar('SETTINGS', 'offline — waiting for whisperquiet on 127.0.0.1:8377');
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = setTimeout(function () {
+      pollTimer = null;
+      if (!disposed && !spec) load();
+    }, 3000);
+  }
+
+  function load() {
+    if (disposed) return;
+    fetch(WQ_API + '/config')
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(function (cfg) {
+        if (disposed) return;
+        if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg) || !Object.keys(cfg).length) {
+          throw new Error('malformed config');
+        }
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        spec = {};
+        fetched = {};
+        dirty = {};
+        Object.keys(cfg).forEach(function (k) {
+          spec[k] = sanitize(k, cfg[k]);
+          fetched[k] = spec[k].value;
+        });
+        render();
+        setBar('SETTINGS', Object.keys(spec).length + ' settings · connected to 127.0.0.1:8377');
+        tick('settings GET ✓');
+      })
+      .catch(function () {
+        if (disposed) return;
+        if (spec) { setLine('refresh failed — keeping current values'); return; }
+        showOffline();
+      });
+  }
+
+  // placeholder while the first GET is in flight
+  var boot = document.createElement('div');
+  boot.className = 'center-wrap';
+  boot.innerHTML = '<div class="hint">connecting to whisperquiet…</div>';
+  arena.appendChild(boot);
+  load();
+
+  return {
+    name: 'settings',
+    destroy: function () {
+      disposed = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      Object.keys(rows).forEach(function (k) {
+        if (rows[k].okTimer) clearTimeout(rows[k].okTimer);
+      });
+    }
   };
 }
 

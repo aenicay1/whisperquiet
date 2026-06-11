@@ -11,6 +11,7 @@ from . import config as config_mod
 from . import inject, transcribe
 from .audio import MicRecorder
 from .feedback import FeedbackLog
+from .settings_server import SettingsServer
 from .stats import SessionStats
 from .hotkey import PushToTalk
 from .overlay import NotchIndicator, Overlay
@@ -55,6 +56,61 @@ class WhisperQuietApp(rumps.App):
         )
         threading.Thread(target=self._warm_up, daemon=True).start()
         threading.Thread(target=self._watch_triggers, daemon=True).start()
+        self.settings_server = SettingsServer(
+            self._tunables_state, self._apply_tunables
+        )
+        print("settings bridge on port", self.settings_server.start(), flush=True)
+
+    # (value, min, max, step, label, group) — schema for the playground tab
+    _TUNABLES = {
+        "cursor_gain": (3500, 1000, 8000, 100, "Cursor speed", "Cursor"),
+        "cursor_deadzone": (0.0015, 0.0005, 0.005, 0.0001, "Cursor deadzone", "Cursor"),
+        "precision_scale": (0.3, 0.1, 1.0, 0.05, "Aim slowdown factor", "Cursor"),
+        "wink_on": (0.6, 0.2, 0.9, 0.01, "Wink trigger", "Winks"),
+        "wink_off": (0.4, 0.1, 0.8, 0.01, "Wink release", "Winks"),
+        "wink_opposite_max": (0.3, 0.1, 0.8, 0.01, "Blink rejection", "Winks"),
+        "double_wink_window": (0.6, 0.3, 1.2, 0.05, "Double-click window", "Winks"),
+        "scroll_on": (0.5, 0.2, 0.9, 0.01, "Scroll trigger", "Scrolling"),
+        "scroll_off": (0.35, 0.1, 0.8, 0.01, "Scroll release", "Scrolling"),
+        "scroll_repeat": (0.15, 0.05, 0.4, 0.01, "Scroll start interval", "Scrolling"),
+        "scroll_repeat_min": (0.05, 0.02, 0.2, 0.01, "Scroll max-speed interval", "Scrolling"),
+        "jaw_on": (0.6, 0.3, 0.9, 0.01, "Drag trigger (jaw)", "Mouth"),
+        "jaw_hold": (0.4, 0.2, 1.0, 0.05, "Drag hold time", "Mouth"),
+        "puff_on": (0.5, 0.3, 0.9, 0.01, "Pause trigger (puff)", "Mouth"),
+        "puff_hold": (0.3, 0.15, 1.0, 0.05, "Pause hold time", "Mouth"),
+        "stream_interval": (0.7, 0.3, 2.0, 0.1, "Partial update interval", "Dictation"),
+    }
+
+    def _stored_tunables(self) -> dict:
+        return self.config.gestures.get("tunables", {})
+
+    def _tunables_state(self) -> dict:
+        stored = self._stored_tunables()
+        legacy_gain = self.config.gestures.get("cursor_gain")
+        state = {}
+        for key, (default, lo, hi, step, label, group) in self._TUNABLES.items():
+            value = stored.get(key, default)
+            if key == "cursor_gain" and key not in stored and legacy_gain:
+                value = legacy_gain
+            state[key] = {
+                "value": value, "min": lo, "max": hi,
+                "step": step, "label": label, "group": group,
+            }
+        return state
+
+    def _apply_tunables(self, values: dict) -> None:
+        clean = {
+            k: float(v) for k, v in values.items()
+            if k in self._TUNABLES and isinstance(v, (int, float))
+        }
+        if not clean:
+            return
+        self.config.gestures.setdefault("tunables", {}).update(clean)
+        config_mod.save(self.config)
+        if "stream_interval" in clean:
+            self.config.stream_interval = clean["stream_interval"]
+        if self._camera is not None:
+            self._camera.apply_tunables(clean)
 
     def _watch_triggers(self) -> None:
         """Out-of-band control: `touch <config dir>/trigger-camera` toggles
@@ -190,6 +246,7 @@ class WhisperQuietApp(rumps.App):
                 cursor_gain=self.config.gestures.get("cursor_gain"),
             )
         self._camera.start()
+        self._camera.apply_tunables(self._stored_tunables())
         item.state = 1
 
     def _toggle_cursor(self, item: rumps.MenuItem) -> None:
@@ -202,6 +259,8 @@ class WhisperQuietApp(rumps.App):
     def _save_calibration(self, persisted: dict) -> None:
         self.config.gestures["calibration"] = persisted
         config_mod.save(self.config)
+        if self._camera is not None:  # user knobs outrank fresh wizard values
+            self._camera.apply_tunables(self._stored_tunables())
 
     def _ensure_camera_permission(self, item: rumps.MenuItem) -> bool:
         """TCC camera prompt must come from this app's run loop — bare CLI
