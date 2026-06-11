@@ -38,6 +38,7 @@ class CameraController:
         saved_calibration: dict | None = None,
         on_calibrated: Callable[[dict], None] | None = None,
         stats=None,
+        cursor_gain: float | None = None,
     ) -> None:
         self._stats = stats
         self._jaw_enabled = jaw_toggle_dictation
@@ -47,7 +48,11 @@ class CameraController:
         self.hud = HUD()
         self.engine = GestureEngine(self._on_event)
         self.capture = FaceCapture(self._on_frame)
-        self.head = HeadCursor()
+        from ..control.head_cursor import CursorConfig
+        cursor_cfg = CursorConfig()
+        if cursor_gain:
+            cursor_cfg.gain_px = float(cursor_gain)
+        self.head = HeadCursor(cursor_cfg)
         self._nodshake = NodShakeDetector()
         self.cursor_enabled = False
         self.paused = False

@@ -187,6 +187,7 @@ class WhisperQuietApp(rumps.App):
                 saved_calibration=self.config.gestures.get("calibration"),
                 on_calibrated=self._save_calibration,
                 stats=self.stats,
+                cursor_gain=self.config.gestures.get("cursor_gain"),
             )
         self._camera.start()
         item.state = 1

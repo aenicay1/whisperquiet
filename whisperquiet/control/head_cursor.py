@@ -29,7 +29,7 @@ from .one_euro import OneEuroFilter
 @dataclass
 class CursorConfig:
     # Screen pixels per unit of normalized nose travel.
-    gain_px: float = 2200.0
+    gain_px: float = 3500.0
     # Normalized; applied to the per-frame filtered delta magnitude.
     deadzone: float = 0.0015
     # Gain multiplier while precision mode is on.
