@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whisperquiet — training playground</title>
+<style>
+  :root {
+    --bg: #07090a;
+    --bg2: #0c1112;
+    --panel: #101718;
+    --panel2: #15201f;
+    --line: #1d2c2b;
+    --teal: #40dfd2;
+    --teal-dim: #2a9b92;
+    --green: #3ddc84;
+    --yellow: #e8c34a;
+    --red: #f06262;
+    --txt: #c9d6d4;
+    --txt-dim: #6d8480;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--sans);
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  textarea { user-select: text; -webkit-user-select: text; }
+
+  #app { flex: 1; display: flex; min-height: 0; }
+
+  /* ---------- menu rail ---------- */
+  #rail {
+    width: 230px;
+    min-width: 230px;
+    background: var(--bg2);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 10px;
+    gap: 8px;
+    overflow-y: auto;
+  }
+  #rail .brand {
+    font-family: var(--mono);
+    color: var(--teal);
+    font-size: 13px;
+    letter-spacing: 2px;
+    padding: 4px 8px 14px;
+  }
+  #rail .brand small { color: var(--txt-dim); display: block; letter-spacing: 1px; margin-top: 3px; }
+  .railbtn {
+    display: block;
+    width: 100%;
+    min-height: 62px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--txt);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-align: left;
+    padding: 10px 14px;
+    cursor: pointer;
+  }
+  .railbtn small { display: block; color: var(--txt-dim); font-size: 10px; margin-top: 4px; letter-spacing: 0; }
+  .railbtn:hover { border-color: var(--teal-dim); background: var(--panel2); }
+  .railbtn.active { border-color: var(--teal); color: var(--teal); }
+  .railbtn.session { margin-top: auto; }
+
+  /* ---------- stage ---------- */
+  #stage { flex: 1; position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  #drillbar {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg2);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 52px;
+  }
+  #drillbar .title { color: var(--teal); letter-spacing: 2px; }
+  #drillbar .stat { color: var(--txt-dim); }
+  #drillbar .stat b { color: var(--txt); font-weight: normal; }
+  #drillbar .spacer { flex: 1; }
+  .exitbtn {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--txt-dim);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 18px;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .exitbtn:hover { border-color: var(--teal-dim); color: var(--txt); }
+
+  #arena { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+
+  /* ---------- generic widgets ---------- */
+  .bigbtn {
+    background: var(--panel);
+    border: 1px solid var(--teal-dim);
+    color: var(--teal);
+    border-radius: 12px;
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 2px;
+    padding: 18px 34px;
+    min-height: 60px;
+    min-width: 160px;
+    cursor: pointer;
+  }
+  .bigbtn:hover { background: var(--panel2); border-color: var(--teal); }
+  .bigbtn.subtle { border-color: var(--line); color: var(--txt-dim); }
+  .bigbtn.subtle:hover { color: var(--txt); }
+
+  .center-wrap {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px; padding: 30px;
+    overflow-y: auto;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px 34px;
+    max-width: 640px;
+    width: 100%;
+  }
+  .card h2 { font-family: var(--mono); color: var(--teal); font-size: 15px; letter-spacing: 3px; margin-bottom: 16px; font-weight: normal; }
+  .card .row { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .card .row:last-of-type { border-bottom: none; }
+  .card .row .k { color: var(--txt-dim); }
+  .card .row .v { color: var(--green); }
+  .card .btns { display: flex; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
+  .hint { font-family: var(--mono); font-size: 11px; color: var(--txt-dim); letter-spacing: 1px; }
+
+  table.gtable { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; margin-top: 8px; }
+  table.gtable th, table.gtable td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+  table.gtable th { color: var(--txt-dim); font-weight: normal; letter-spacing: 1px; }
+  table.gtable td:first-child, table.gtable th:first-child { text-align: left; color: var(--txt); }
+  td.good { color: var(--green); } td.warn { color: var(--yellow); } td.bad { color: var(--red); }
+
+  /* ---------- drill 1/2: targets ---------- */
+  .target {
+    position: absolute;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #5af0e3, var(--teal) 60%, var(--teal-dim));
+    box-shadow: 0 0 22px rgba(64,223,210,.45), 0 0 4px rgba(64,223,210,.9);
+    cursor: pointer;
+  }
+  .target::after {
+    content: ""; position: absolute; inset: -14px;
+    border: 1px solid rgba(64,223,210,.3); border-radius: 50%;
+  }
+  .target.dbl { background: radial-gradient(circle at 35% 35%, #8ff2ae, var(--green) 60%, #1f9457); box-shadow: 0 0 22px rgba(61,220,132,.45); }
+  .flash-hit { animation: pop .25s ease-out; }
+  @keyframes pop { from { transform: scale(1.5); opacity: .4; } to { transform: scale(1); opacity: 1; } }
+
+  /* ---------- drill 3: drag ---------- */
+  .dragsq {
+    position: absolute; width: 64px; height: 64px;
+    background: var(--panel2);
+    border: 2px solid var(--teal);
+    border-radius: 10px;
+    box-shadow: 0 0 16px rgba(64,223,210,.35);
+    cursor: grab;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; color: var(--teal); letter-spacing: 1px;
+  }
+  .dragsq.held { cursor: grabbing; border-color: var(--green); color: var(--green); box-shadow: 0 0 22px rgba(61,220,132,.5); }
+  .dropzone {
+    position: absolute; width: 96px; height: 96px;
+    border: 2px dashed var(--teal-dim);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 1px;
+  }
+  .dropzone.hot { border-color: var(--green); color: var(--green); background: rgba(61,220,132,.08); }
+
+  /* ---------- drill 4: scroll ---------- */
+  .scrollwrap { position: absolute; inset: 0; display: flex; justify-content: center; padding: 20px 0; }
+  .scrollcol { position: relative; width: min(420px, 80%); height: 100%; }
+  .scroller {
+    position: absolute; inset: 0;
+    overflow-y: scroll;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg2);
+  }
+  .scontent { position: relative; }
+  .srule { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); }
+  .srule span { position: absolute; left: 8px; top: -14px; font-family: var(--mono); font-size: 10px; color: var(--txt-dim); }
+  .band {
+    position: absolute; left: 0; right: 0;
+    background: rgba(64,223,210,.12);
+    border-top: 1px solid var(--teal);
+    border-bottom: 1px solid var(--teal);
+  }
+  .band.locked { background: rgba(61,220,132,.18); border-color: var(--green); }
+  .marker {
+    position: absolute; left: -16px; right: -16px; top: 50%;
+    height: 2px; background: var(--yellow);
+    box-shadow: 0 0 8px rgba(232,195,74,.7);
+    pointer-events: none; z-index: 2;
+  }
+  .marker::before, .marker::after {
+    content: ""; position: absolute; top: -5px;
+    border: 6px solid transparent;
+  }
+  .marker::before { left: 0; border-left-color: var(--yellow); }
+  .marker::after { right: 0; border-right-color: var(--yellow); }
+  .holdring { position: absolute; right: 14px; top: 12px; font-family: var(--mono); font-size: 12px; color: var(--green); z-index: 2; }
+
+  /* ---------- drill 5: gesture ---------- */
+  .gprompt {
+    font-family: var(--mono);
+    font-size: clamp(34px, 7vw, 72px);
+    letter-spacing: 6px;
+    color: var(--teal);
+    text-shadow: 0 0 30px rgba(64,223,210,.4);
+  }
+  .gprompt.waiting { color: var(--txt-dim); font-size: 20px; text-shadow: none; letter-spacing: 3px; }
+  .gfeedback { font-family: var(--mono); font-size: 16px; letter-spacing: 2px; min-height: 24px; }
+  .gfeedback.ok { color: var(--green); } .gfeedback.bad { color: var(--red); } .gfeedback.late { color: var(--yellow); }
+
+  /* ---------- drill 6: dictation ---------- */
+  .refbox {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px;
+    max-width: 720px; width: 100%;
+    font-size: 19px; line-height: 1.6;
+    color: var(--txt);
+  }
+  .refbox .label { font-family: var(--mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 2px; margin-bottom: 8px; }
+  #dictin {
+    max-width: 720px; width: 100%;
+    min-height: 110px;
+    background: var(--bg2);
+    border: 1px solid var(--teal-dim);
+    border-radius: 12px;
+    color: var(--txt);
+    font-family: var(--sans);
+    font-size: 18px;
+    line-height: 1.5;
+    padding: 14px 18px;
+    resize: none;
+    outline: none;
+  }
+  #dictin:focus { border-color: var(--teal); box-shadow: 0 0 14px rgba(64,223,210,.2); }
+  .diffbox { max-width: 720px; width: 100%; font-size: 17px; line-height: 1.9; }
+  .diffbox .w { padding: 1px 3px; border-radius: 4px; }
+  .diffbox .w.ok { color: var(--txt); }
+  .diffbox .w.sub { color: var(--yellow); background: rgba(232,195,74,.12); }
+  .diffbox .w.del { color: var(--red); text-decoration: line-through; background: rgba(240,98,98,.1); }
+  .diffbox .w.ins { color: var(--teal); text-decoration: underline; }
+  .werline { font-family: var(--mono); font-size: 15px; letter-spacing: 1px; }
+
+  /* ---------- ticker ---------- */
+  #ticker {
+    height: 36px; min-height: 36px;
+    background: #050707;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center;
+    gap: 14px;
+    padding: 0 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  #ticker .tklabel { color: var(--teal-dim); letter-spacing: 2px; }
+  #ticker .ev { color: var(--txt-dim); }
+  #ticker .ev:first-of-type { color: var(--teal); }
+
+  /* ---------- session view ---------- */
+  .sesswrap { position: absolute; inset: 0; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .sessrow {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 20px; max-width: 720px; width: 100%;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .sessrow .head { display: flex; justify-content: space-between; color: var(--teal); letter-spacing: 1px; margin-bottom: 6px; }
+  .sessrow .head .when { color: var(--txt-dim); }
+  .sessrow .mets { color: var(--txt-dim); line-height: 1.7; }
+  .sessrow .mets b { color: var(--txt); font-weight: normal; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <aside id="rail">
+    <div class="brand">WHISPERQUIET<small>TRAINING PLAYGROUND</small></div>
+    <button class="railbtn" data-drill="target">1 · TARGET CLICK<small>left-wink accuracy &amp; speed</small></button>
+    <button class="railbtn" data-drill="double">2 · DOUBLE CLICK<small>double-left-wink timing</small></button>
+    <button class="railbtn" data-drill="drag">3 · DRAG &amp; DROP<small>open-mouth hold control</small></button>
+    <button class="railbtn" data-drill="scroll">4 · SCROLL BAND<small>brow-raise / pucker precision</small></button>
+    <button class="railbtn" data-drill="gesture">5 · GESTURE REACTION<small>threshold-tuning goldmine</small></button>
+    <button class="railbtn" data-drill="dictation">6 · DICTATION WER<small>whisper accuracy scoring</small></button>
+    <button class="railbtn session" data-drill="session">SESSION<small>aggregate stats · export JSON</small></button>
+  </aside>
+
+  <main id="stage">
+    <div id="drillbar">
+      <span class="title" id="bar-title">MENU</span>
+      <span class="stat" id="bar-stats"></span>
+      <span class="spacer"></span>
+      <button class="exitbtn" id="bar-exit">ESC · MENU</button>
+    </div>
+    <div id="arena"></div>
+  </main>
+</div>
+
+<div id="ticker"><span class="tklabel">EVENTS</span><span id="tkfeed"></span></div>
+
+<script>
+'use strict';
+(function () {
+
+/* ============================ utilities ============================ */
+
+var $ = function (s) { return document.querySelector(s); };
+var arena = $('#arena');
+var barTitle = $('#bar-title');
+var barStats = $('#bar-stats');
+var now = function () { return performance.now(); };
+var rnd = function (a, b) { return a + Math.random() * (b - a); };
+var esc = function (s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+};
+var fmtMs = function (ms) { return ms == null ? '—' : (ms / 1000).toFixed(2) + 's'; };
+var fmtPct = function (x) { return x == null ? '—' : Math.round(x * 100) + '%'; };
+var avg = function (arr) { return arr.length ? arr.reduce(function (a, b) { return a + b; }, 0) / arr.length : null; };
+
+function lsGet(key, fallback) {
+  try {
+    var raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) { return fallback; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* private mode etc. */ }
+}
+
+/* ============================ session store ============================ */
+
+var LS_KEY = 'wq_playground_history_v1';
+var history = lsGet(LS_KEY, []);
+if (!Array.isArray(history)) history = [];
+
+function recordDrill(type, metrics) {
+  history.push({ type: type, ts: new Date().toISOString(), metrics: metrics });
+  lsSet(LS_KEY, history);
+}
+
+/* ============================ event ticker ============================ */
+
+var tkFeed = $('#tkfeed');
+var tkEvents = [];
+function tick(label) {
+  tkEvents.unshift(label);
+  if (tkEvents.length > 8) tkEvents.length = 8;
+  var html = '';
+  for (var i = 0; i < tkEvents.length; i++) {
+    html += '<span class="ev">' + esc(tkEvents[i]) + (i < tkEvents.length - 1 ? ' · ' : '') + '</span>';
+  }
+  tkFeed.innerHTML = html;
+}
+
+/* ============================ drill plumbing ============================ */
+
+var active = null;   // { name, destroy(), onMouseDown?, onDblClick?, onWheel?, onKeyDown?, handleEscape? }
+var mode = 'menu';
+
+function clearArena() { arena.innerHTML = ''; }
+
+function setBar(title, stats) {
+  barTitle.textContent = title;
+  barStats.textContent = stats || '';
+}
+
+function goMenu() {
+  if (active && active.destroy) { try { active.destroy(); } catch (e) {} }
+  active = null;
+  mode = 'menu';
+  highlightRail(null);
+  setBar('MENU', 'pick a drill — every button is wink-sized');
+  clearArena();
+  var div = document.createElement('div');
+  div.className = 'center-wrap';
+  div.innerHTML =
+    '<div class="card">' +
+      '<h2>HANDS-FREE TRAINING RANGE</h2>' +
+      '<div style="font-size:14px;line-height:1.8;color:var(--txt-dim)">' +
+        'This page only listens to ordinary clicks, scrolls and keys — exactly what ' +
+        'whisperquiet injects. Pick a drill on the left (left-wink to click it).<br><br>' +
+        '<span style="color:var(--txt)">left wink</span> = left click · ' +
+        '<span style="color:var(--txt)">right wink</span> = right click · ' +
+        '<span style="color:var(--txt)">brow raise / pucker</span> = scroll · ' +
+        '<span style="color:var(--txt)">open mouth</span> = drag · ' +
+        '<span style="color:var(--txt)">nod</span> = Enter · ' +
+        '<span style="color:var(--txt)">head shake</span> = Escape (returns here — by design).' +
+      '</div>' +
+    '</div>';
+  arena.appendChild(div);
+}
+
+function highlightRail(drill) {
+  var btns = document.querySelectorAll('.railbtn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].getAttribute('data-drill') === drill);
+  }
+}
+
+function startDrill(name) {
+  if (active && active.name === name) return;          // guard double-start
+  if (active && active.destroy) { try { active.destroy(); } catch (e) {} }
+  active = null;
+  clearArena();
+  mode = name;
+  highlightRail(name);
+  var starters = {
+    target: startTargetClick, double: startDoubleClick, drag: startDragDrop,
+    scroll: startScrollBand, gesture: startGestureReaction, dictation: startDictation,
+    session: showSession
+  };
+  if (starters[name]) active = starters[name]() || null;
+  else goMenu();
+}
+
+/* summary card helper -------------------------------------------------- */
+function showSummary(title, rows, retryName, extraHtml) {
+  // drill is over: tear down its listeners/timers so RETRY (same name) restarts cleanly
+  if (active && active.destroy) { try { active.destroy(); } catch (e) {} }
+  active = null;
+  mode = 'summary';
+  clearArena();
+  var div = document.createElement('div');
+  div.className = 'center-wrap';
+  var html = '<div class="card"><h2>' + esc(title) + ' — COMPLETE</h2>';
+  for (var i = 0; i < rows.length; i++) {
+    html += '<div class="row"><span class="k">' + esc(rows[i][0]) + '</span><span class="v">' + esc(rows[i][1]) + '</span></div>';
+  }
+  if (extraHtml) html += extraHtml;
+  html += '<div class="btns">' +
+    '<button class="bigbtn" id="sum-retry">RETRY</button>' +
+    '<button class="bigbtn subtle" id="sum-menu">MENU</button>' +
+    '<button class="bigbtn subtle" id="sum-sess">SESSION</button>' +
+  '</div></div>';
+  div.innerHTML = html;
+  arena.appendChild(div);
+  $('#sum-retry').addEventListener('click', function () { startDrill(retryName); });
+  $('#sum-menu').addEventListener('click', goMenu);
+  $('#sum-sess').addEventListener('click', function () { startDrill('session'); });
+}
+
+/* random point for a w×h element kept ≥ margin from arena edges -------- */
+function randPos(w, h, margin) {
+  var r = arena.getBoundingClientRect();
+  var minX = margin, minY = margin;
+  var maxX = Math.max(minX, r.width - margin - w);
+  var maxY = Math.max(minY, r.height - margin - h);
+  return { x: rnd(minX, maxX), y: rnd(minY, maxY) };
+}
+
+/* ====================== DRILL 1 · TARGET CLICK ====================== */
+
+function startTargetClick() {
+  var ROUNDS = 10, EDGE = 80, SIZE = 56;
+  var round = 0, times = [], misses = 0, strays = 0, done = false;
+  var spawnAt = 0, target = null;
+
+  setBar('TARGET CLICK', '');
+  function stats() {
+    setBar('TARGET CLICK',
+      'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  ·  avg ' + fmtMs(avg(times)) + '  ·  misses ' + misses + '  ·  strays ' + strays);
+  }
+
+  function spawn() {
+    if (target) target.remove();
+    var p = randPos(SIZE, SIZE, EDGE);
+    target = document.createElement('div');
+    target.className = 'target flash-hit';
+    target.style.left = p.x + 'px';
+    target.style.top = p.y + 'px';
+    arena.appendChild(target);
+    spawnAt = now();
+    stats();
+  }
+
+  function onArenaClick(e) {
+    if (done) return;
+    if (target && (e.target === target)) {
+      times.push(now() - spawnAt);
+      round++;
+      if (round >= ROUNDS) finish(); else spawn();
+    } else {
+      misses++;
+      stats();
+    }
+  }
+  arena.addEventListener('click', onArenaClick);
+
+  function finish() {
+    done = true;
+    if (target) { target.remove(); target = null; }
+    var hits = times.length;
+    var totalClicks = hits + misses;
+    var metrics = {
+      rounds: ROUNDS,
+      avg_time_ms: Math.round(avg(times) || 0),
+      best_time_ms: Math.round(Math.min.apply(null, times.concat([0]).filter(function (t) { return t > 0; })) || 0),
+      accuracy: totalClicks ? hits / totalClicks : 0,
+      misses: misses,
+      misses_per_round: misses / ROUNDS,
+      stray_clicks: strays
+    };
+    recordDrill('target_click', metrics);
+    showSummary('TARGET CLICK', [
+      ['avg time-to-click', fmtMs(metrics.avg_time_ms)],
+      ['accuracy', fmtPct(metrics.accuracy)],
+      ['misses / round', metrics.misses_per_round.toFixed(2)],
+      ['stray clicks (off-arena)', String(strays)]
+    ], 'target');
+  }
+
+  spawn();
+
+  return {
+    name: 'target',
+    onStrayClick: function () { if (!done) { strays++; stats(); } },
+    destroy: function () { arena.removeEventListener('click', onArenaClick); }
+  };
+}
+
+/* ====================== DRILL 2 · DOUBLE CLICK ====================== */
+
+function startDoubleClick() {
+  var ROUNDS = 10, EDGE = 80, SIZE = 56;
+  var round = 0, times = [], partials = 0, misses = 0, cleanRounds = 0, done = false;
+  var spawnAt = 0, target = null, roundDirty = false, partialTimer = null;
+
+  function stats() {
+    setBar('DOUBLE CLICK',
+      'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  ·  avg ' + fmtMs(avg(times)) + '  ·  partials ' + partials + '  ·  misses ' + misses);
+  }
+
+  function spawn() {
+    if (target) target.remove();
+    var p = randPos(SIZE, SIZE, EDGE);
+    target = document.createElement('div');
+    target.className = 'target dbl flash-hit';
+    target.style.left = p.x + 'px';
+    target.style.top = p.y + 'px';
+    arena.appendChild(target);
+    spawnAt = now();
+    roundDirty = false;
+    stats();
+  }
+
+  function onClick(e) {
+    if (done) return;
+    if (target && e.target === target) {
+      // wait to see if this click becomes a dblclick; if not, it was a partial
+      if (partialTimer) clearTimeout(partialTimer);
+      partialTimer = setTimeout(function () {
+        partialTimer = null;
+        if (!done) { partials++; roundDirty = true; stats(); }
+      }, 420);
+    } else {
+      misses++; roundDirty = true; stats();
+    }
+  }
+  function onDbl(e) {
+    if (done) return;
+    if (target && e.target === target) {
+      if (partialTimer) { clearTimeout(partialTimer); partialTimer = null; }
+      times.push(now() - spawnAt);
+      if (!roundDirty) cleanRounds++;
+      round++;
+      if (round >= ROUNDS) finish(); else spawn();
+    }
+  }
+  arena.addEventListener('click', onClick);
+  arena.addEventListener('dblclick', onDbl);
+
+  function finish() {
+    done = true;
+    if (partialTimer) { clearTimeout(partialTimer); partialTimer = null; }
+    if (target) { target.remove(); target = null; }
+    var metrics = {
+      rounds: ROUNDS,
+      avg_dblclick_latency_ms: Math.round(avg(times) || 0),
+      success_rate_clean: cleanRounds / ROUNDS,
+      partial_single_clicks: partials,
+      misses: misses
+    };
+    recordDrill('double_click', metrics);
+    showSummary('DOUBLE CLICK', [
+      ['avg double-click latency', fmtMs(metrics.avg_dblclick_latency_ms)],
+      ['clean-round success rate', fmtPct(metrics.success_rate_clean)],
+      ['partial single clicks', String(partials)],
+      ['misses', String(misses)]
+    ], 'double');
+  }
+
+  spawn();
+
+  return {
+    name: 'double',
+    destroy: function () {
+      if (partialTimer) clearTimeout(partialTimer);
+      arena.removeEventListener('click', onClick);
+      arena.removeEventListener('dblclick', onDbl);
+    }
+  };
+}
+
+/* ====================== DRILL 3 · DRAG & DROP ====================== */
+
+function startDragDrop() {
+  var ROUNDS = 8, EDGE = 80, SQ = 64, ZN = 96;
+  var round = 0, times = [], failedDrops = 0, done = false;
+  var sq = null, zone = null, roundStart = 0;
+  var holding = false, offX = 0, offY = 0, homeX = 0, homeY = 0;
+
+  function stats() {
+    setBar('DRAG & DROP',
+      'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  ·  avg ' + fmtMs(avg(times)) + '  ·  failed drops ' + failedDrops);
+  }
+
+  function spawn() {
+    if (sq) sq.remove();
+    if (zone) zone.remove();
+    var ps, pz, tries = 0;
+    do {  // keep square and zone reasonably apart
+      ps = randPos(SQ, SQ, EDGE);
+      pz = randPos(ZN, ZN, EDGE);
+      tries++;
+    } while (tries < 30 && Math.hypot(ps.x - pz.x, ps.y - pz.y) < 240);
+    sq = document.createElement('div');
+    sq.className = 'dragsq';
+    sq.textContent = 'GRAB';
+    sq.style.left = ps.x + 'px'; sq.style.top = ps.y + 'px';
+    homeX = ps.x; homeY = ps.y;
+    zone = document.createElement('div');
+    zone.className = 'dropzone';
+    zone.textContent = 'DROP';
+    zone.style.left = pz.x + 'px'; zone.style.top = pz.y + 'px';
+    arena.appendChild(zone);
+    arena.appendChild(sq);
+    roundStart = now();
+    stats();
+  }
+
+  function onDown(e) {
+    if (done || !sq || e.button !== 0) return;
+    if (e.target !== sq) return;
+    holding = true;
+    sq.classList.add('held');
+    var r = sq.getBoundingClientRect();
+    offX = e.clientX - r.left;
+    offY = e.clientY - r.top;
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!holding || !sq) return;
+    var ar = arena.getBoundingClientRect();
+    var x = e.clientX - ar.left - offX;
+    var y = e.clientY - ar.top - offY;
+    x = Math.max(0, Math.min(ar.width - SQ, x));
+    y = Math.max(0, Math.min(ar.height - SQ, y));
+    sq.style.left = x + 'px';
+    sq.style.top = y + 'px';
+    if (zone) {
+      var zr = zone.getBoundingClientRect();
+      var cx = e.clientX, cy = e.clientY;
+      zone.classList.toggle('hot', cx >= zr.left && cx <= zr.right && cy >= zr.top && cy <= zr.bottom);
+    }
+  }
+  function onUp(e) {
+    if (!holding || done || !sq || !zone) { holding = false; return; }
+    holding = false;
+    sq.classList.remove('held');
+    var sr = sq.getBoundingClientRect();
+    var zr = zone.getBoundingClientRect();
+    var cx = sr.left + sr.width / 2, cy = sr.top + sr.height / 2;
+    var inside = cx >= zr.left && cx <= zr.right && cy >= zr.top && cy <= zr.bottom;
+    if (inside) {
+      times.push(now() - roundStart);
+      round++;
+      if (round >= ROUNDS) finish(); else spawn();
+    } else {
+      failedDrops++;
+      sq.style.left = homeX + 'px';   // snap home, round continues
+      sq.style.top = homeY + 'px';
+      zone.classList.remove('hot');
+      stats();
+    }
+  }
+  arena.addEventListener('mousedown', onDown);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+
+  function finish() {
+    done = true;
+    if (sq) { sq.remove(); sq = null; }
+    if (zone) { zone.remove(); zone = null; }
+    var metrics = {
+      rounds: ROUNDS,
+      avg_completion_ms: Math.round(avg(times) || 0),
+      failed_drops: failedDrops,
+      failed_drops_per_round: failedDrops / ROUNDS
+    };
+    recordDrill('drag_drop', metrics);
+    showSummary('DRAG & DROP', [
+      ['avg completion time', fmtMs(metrics.avg_completion_ms)],
+      ['failed drops', String(failedDrops)],
+      ['failed drops / round', metrics.failed_drops_per_round.toFixed(2)]
+    ], 'drag');
+  }
+
+  spawn();
+
+  return {
+    name: 'drag',
+    destroy: function () {
+      arena.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+  };
+}
+
+/* ====================== DRILL 4 · SCROLL BAND ====================== */
+
+function startScrollBand() {
+  var ROUNDS = 8, BAND_H = 90, CONTENT_H = 5200, HOLD_MS = 1000;
+  var round = 0, times = [], overshoots = [], done = false;
+  var roundStart = 0, roundOvershoot = 0, lastSign = 0, holdTimer = null, scored = false;
+
+  clearArena();
+  var wrap = document.createElement('div');
+  wrap.className = 'scrollwrap';
+  wrap.innerHTML =
+    '<div class="scrollcol">' +
+      '<div class="marker"></div>' +
+      '<div class="holdring" id="holdring"></div>' +
+      '<div class="scroller" id="scroller"><div class="scontent" id="scontent"></div></div>' +
+    '</div>';
+  arena.appendChild(wrap);
+  var scroller = $('#scroller');
+  var content = $('#scontent');
+  var holdring = $('#holdring');
+  content.style.height = CONTENT_H + 'px';
+
+  // ruler lines so motion is visible
+  var rules = '';
+  for (var y = 0; y < CONTENT_H; y += 100) {
+    rules += '<div class="srule" style="top:' + y + 'px"><span>' + y + '</span></div>';
+  }
+  content.innerHTML = rules + '<div class="band" id="band"></div>';
+  var band = $('#band');
+  band.style.height = BAND_H + 'px';
+
+  var bandTop = 0;
+
+  function markerY() { return scroller.scrollTop + scroller.clientHeight / 2; }
+  function bandCenter() { return bandTop + BAND_H / 2; }
+
+  function stats() {
+    setBar('SCROLL BAND',
+      'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  ·  avg ' + fmtMs(avg(times)) + '  ·  overshoots ' +
+      (overshoots.reduce(function (a, b) { return a + b; }, 0) + roundOvershoot));
+  }
+
+  function spawnRound() {
+    scored = false;
+    roundOvershoot = 0;
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    band.classList.remove('locked');
+    holdring.textContent = '';
+    var ch = scroller.clientHeight;
+    var maxScroll = CONTENT_H - ch;
+    var dir = (round % 2 === 0) ? 1 : -1;                       // alternate down/up
+    var dist = rnd(400, Math.min(1600, maxScroll * 0.6)) * dir; // varying distance
+    var cur = scroller.scrollTop;
+    var targetScroll = Math.max(0, Math.min(maxScroll, cur + dist));
+    if (Math.abs(targetScroll - cur) < 250) targetScroll = Math.max(0, Math.min(maxScroll, cur - dist));
+    bandTop = targetScroll + ch / 2 - BAND_H / 2;
+    bandTop = Math.max(0, Math.min(CONTENT_H - BAND_H, bandTop));
+    band.style.top = bandTop + 'px';
+    lastSign = Math.sign(bandCenter() - markerY()) || 1;
+    roundStart = now();
+    stats();
+  }
+
+  function inBand() {
+    var my = markerY();
+    return my >= bandTop && my <= bandTop + BAND_H;
+  }
+
+  function onScroll() {
+    if (done || scored) return;
+    var my = markerY();
+    var sign = Math.sign(bandCenter() - my) || 0;
+    if (sign !== 0 && sign !== lastSign && !inBand()) {  // shot straight past the band
+      roundOvershoot++;
+      lastSign = sign;
+      stats();
+    }
+    if (inBand()) {
+      band.classList.add('locked');
+      if (!holdTimer) {
+        var t0 = now();
+        holdring.textContent = 'HOLD…';
+        holdTimer = setTimeout(function () {
+          holdTimer = null;
+          if (!done && inBand()) score();
+        }, HOLD_MS);
+      }
+    } else {
+      band.classList.remove('locked');
+      holdring.textContent = '';
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    }
+  }
+  scroller.addEventListener('scroll', onScroll);
+
+  function score() {
+    scored = true;
+    times.push(now() - roundStart - HOLD_MS);
+    overshoots.push(roundOvershoot);
+    holdring.textContent = 'LOCKED ✓';
+    round++;
+    if (round >= ROUNDS) { finish(); return; }
+    setTimeout(function () { if (!done) spawnRound(); }, 700);
+  }
+
+  function finish() {
+    done = true;
+    var totalOver = overshoots.reduce(function (a, b) { return a + b; }, 0);
+    var metrics = {
+      rounds: ROUNDS,
+      avg_time_to_band_ms: Math.round(avg(times) || 0),
+      total_overshoots: totalOver,
+      overshoots_per_round: totalOver / ROUNDS
+    };
+    recordDrill('scroll_band', metrics);
+    showSummary('SCROLL BAND', [
+      ['avg time to lock (excl. hold)', fmtMs(metrics.avg_time_to_band_ms)],
+      ['total overshoots', String(totalOver)],
+      ['overshoots / round', metrics.overshoots_per_round.toFixed(2)]
+    ], 'scroll');
+  }
+
+  // initial position: middle of content
+  scroller.scrollTop = (CONTENT_H - scroller.clientHeight) / 2;
+  spawnRound();
+
+  return {
+    name: 'scroll',
+    destroy: function () {
+      if (holdTimer) clearTimeout(holdTimer);
+      scroller.removeEventListener('scroll', onScroll);
+    }
+  };
+}
+
+/* ==================== DRILL 5 · GESTURE REACTION ==================== */
+
+var GESTURES = ['LEFT WINK', 'RIGHT WINK', 'DOUBLE WINK', 'NOD', 'SHAKE', 'SCROLL UP', 'SCROLL DOWN'];
+
+function startGestureReaction() {
+  var TOTAL = 20, TIMEOUT = 5000;
+  var queue = [];
+  // ~3 of each, shuffled, trimmed to 20
+  for (var r = 0; r < 3; r++) queue = queue.concat(GESTURES);
+  for (var i = queue.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
+  }
+  queue.length = TOTAL;
+
+  var idx = -1, live = false, shownAt = 0, done = false;
+  var delayTimer = null, timeoutTimer = null, pendingClickTimer = null, cooldownUntil = 0, wheelCooldownUntil = 0;
+  var perG = {};
+  GESTURES.forEach(function (g) { perG[g] = { shown: 0, correct: 0, wrong: 0, timeout: 0, lats: [] }; });
+
+  clearArena();
+  var div = document.createElement('div');
+  div.className = 'center-wrap';
+  div.innerHTML =
+    '<div class="gprompt waiting" id="gp">get ready…</div>' +
+    '<div class="gfeedback" id="gf"></div>' +
+    '<div class="hint">prompt appears → perform that gesture · 5s timeout · ESC between prompts exits</div>';
+  arena.appendChild(div);
+  var gp = $('#gp'), gf = $('#gf');
+
+  function stats() {
+    var c = 0, w = 0, t = 0;
+    GESTURES.forEach(function (g) { c += perG[g].correct; w += perG[g].wrong; t += perG[g].timeout; });
+    setBar('GESTURE REACTION',
+      'prompt ' + Math.min(idx + 1, TOTAL) + '/' + TOTAL +
+      '  ·  ✓ ' + c + '  ·  ✗ ' + w + '  ·  ⌛ ' + t);
+  }
+
+  function nextPrompt() {
+    idx++;
+    if (idx >= TOTAL) { finish(); return; }
+    live = false;
+    gp.className = 'gprompt waiting';
+    gp.textContent = '· · ·';
+    stats();
+    delayTimer = setTimeout(function () {
+      if (done) return;
+      live = true;
+      shownAt = now();
+      gp.className = 'gprompt';
+      gp.textContent = queue[idx];
+      perG[queue[idx]].shown++;
+      timeoutTimer = setTimeout(function () {
+        if (done || !live) return;
+        live = false;
+        perG[queue[idx]].timeout++;
+        gf.className = 'gfeedback late';
+        gf.textContent = 'TIMEOUT';
+        afterResolve();
+      }, TIMEOUT);
+    }, rnd(1500, 3500));
+  }
+
+  function afterResolve() {
+    if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+    if (pendingClickTimer) { clearTimeout(pendingClickTimer); pendingClickTimer = null; }
+    cooldownUntil = now() + 500;   // swallow trailing events (2nd click of a dbl, wheel burst)
+    setTimeout(function () { if (!done) nextPrompt(); }, 600);
+  }
+
+  function resolve(got) {
+    if (!live || done) return;
+    var expected = queue[idx];
+    var lat = now() - shownAt;
+    live = false;
+    if (got === expected) {
+      perG[expected].correct++;
+      perG[expected].lats.push(lat);
+      gf.className = 'gfeedback ok';
+      gf.textContent = '✓ ' + Math.round(lat) + 'ms';
+    } else {
+      perG[expected].wrong++;
+      gf.className = 'gfeedback bad';
+      gf.textContent = '✗ got ' + got;
+    }
+    afterResolve();
+  }
+
+  function input(got) {
+    if (done || !live || now() < cooldownUntil) return;
+    var expected = queue[idx];
+    // single click while DOUBLE WINK expected: give the dblclick a window to land
+    if (got === 'LEFT WINK' && expected === 'DOUBLE WINK') {
+      if (!pendingClickTimer) {
+        pendingClickTimer = setTimeout(function () {
+          pendingClickTimer = null;
+          resolve('LEFT WINK');     // never became a double
+        }, 420);
+      }
+      return;
+    }
+    if (got === 'DOUBLE WINK' && pendingClickTimer) {
+      clearTimeout(pendingClickTimer); pendingClickTimer = null;
+    }
+    resolve(got);
+  }
+
+  function finish() {
+    done = true;
+    var c = 0, w = 0, t = 0, allLats = [];
+    var tableRows = '';
+    GESTURES.forEach(function (g) {
+      var s = perG[g];
+      c += s.correct; w += s.wrong; t += s.timeout;
+      allLats = allLats.concat(s.lats);
+      var a = avg(s.lats);
+      var rate = s.shown ? s.correct / s.shown : null;
+      var cls = rate == null ? '' : rate >= 0.99 ? 'good' : rate >= 0.5 ? 'warn' : 'bad';
+      tableRows += '<tr><td>' + esc(g) + '</td><td>' + s.shown + '</td>' +
+        '<td class="' + cls + '">' + s.correct + '</td><td>' + s.wrong + '</td><td>' + s.timeout + '</td>' +
+        '<td>' + (a == null ? '—' : Math.round(a) + 'ms') + '</td></tr>';
+    });
+    var shown = c + w + t;
+    var perGMetrics = {};
+    GESTURES.forEach(function (g) {
+      var s = perG[g];
+      perGMetrics[g] = {
+        shown: s.shown, correct: s.correct, wrong: s.wrong, timeout: s.timeout,
+        avg_latency_ms: s.lats.length ? Math.round(avg(s.lats)) : null
+      };
+    });
+    var metrics = {
+      prompts: shown,
+      correct: c, wrong: w, timeouts: t,
+      accuracy: shown ? c / shown : 0,
+      avg_latency_ms: allLats.length ? Math.round(avg(allLats)) : null,
+      per_gesture: perGMetrics
+    };
+    recordDrill('gesture_reaction', metrics);
+    var table =
+      '<table class="gtable"><tr><th>GESTURE</th><th>SHOWN</th><th>✓</th><th>✗</th><th>⌛</th><th>AVG LAT</th></tr>' +
+      tableRows + '</table>';
+    showSummary('GESTURE REACTION', [
+      ['accuracy', fmtPct(metrics.accuracy)],
+      ['avg reaction latency', metrics.avg_latency_ms == null ? '—' : metrics.avg_latency_ms + 'ms'],
+      ['wrong gestures', String(w)],
+      ['timeouts', String(t)]
+    ], 'gesture', table);
+  }
+
+  stats();
+  nextPrompt();
+
+  return {
+    name: 'gesture',
+    onMouseDown: function (e) {
+      if (e.button === 2) input('RIGHT WINK');
+      // left button handled via click/dblclick to disambiguate doubles
+    },
+    onClick: function (e) {
+      if (e.button === 0 || e.button === undefined) input('LEFT WINK');
+    },
+    onDblClick: function () { input('DOUBLE WINK'); },
+    onWheel: function (e) {
+      if (done || !live) return;
+      var t = now();
+      if (t < wheelCooldownUntil) return;
+      wheelCooldownUntil = t + 600;
+      if (e.deltaY < 0) input('SCROLL UP');
+      else if (e.deltaY > 0) input('SCROLL DOWN');
+    },
+    onKeyDown: function (e) {
+      if (e.key === 'Enter') input('NOD');
+    },
+    handleEscape: function () {
+      if (live) { input('SHAKE'); return true; }  // consumed as gesture answer
+      return false;                                // between prompts → exit to menu
+    },
+    destroy: function () {
+      done = true;
+      if (delayTimer) clearTimeout(delayTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (pendingClickTimer) clearTimeout(pendingClickTimer);
+    }
+  };
+}
+
+/* ===================== DRILL 6 · DICTATION WER ===================== */
+
+var SENTENCES = [
+  "The quarterly report is due on Friday before the team meeting starts.",
+  "Please send the updated proposal to yacine@springdaleind.com by end of day.",
+  "Springdale closed three deals last quarter, which beat the forecast by twelve percent.",
+  "Can you grab coffee on the way in? I'll cover the first round of edits.",
+  "The Circleback notes from Tuesday's call mention a follow-up on pricing terms.",
+  "Order forty-two units of the smaller bracket and sixteen of the large one.",
+  "Her flight lands at 7:45 PM, so dinner should start around nine.",
+  "Forward the diligence checklist to legal@circleback.io and copy the deal team.",
+  "I think we should revisit the budget assumptions before Thursday's review.",
+  "The warehouse in Columbus shipped 1,250 pallets last week without a single error.",
+  "Honestly, the second draft reads much better than the first one did.",
+  "Add milk, eggs, sourdough bread, and two avocados to the grocery list.",
+  "The Springdale onboarding doc needs a section on camera permissions and setup.",
+  "Quick reminder: standup moves to 9:15 tomorrow because of the all-hands.",
+  "He said the API latency dropped from 300 milliseconds to about 80.",
+  "Let's schedule the kickoff for March 3rd and the retro for March 17th.",
+  "The new hire starts Monday; her laptop and badge are already prepared.",
+  "Could you double-check the wire instructions before we send the deposit?",
+  "Circleback flagged two action items: update the model and email the lender.",
+  "Our churn improved to 2.4 percent after the pricing change in January.",
+  "Take the second left after the bridge, then look for the gray building.",
+  "The contractor quoted eighteen thousand dollars for the roof and gutters combined.",
+  "Don't forget to water the plants and lock the back door tonight.",
+  "Revenue grew 34 percent year over year, driven mostly by the Midwest region.",
+  "Ping me when the build finishes so I can test the gesture thresholds.",
+  "The meeting ran long, but we finally agreed on the integration timeline.",
+  "Whisper quietly and the model should still catch every single word you say.",
+  "Set the thermostat to 68 degrees before you leave for the weekend.",
+  "The Springdale team will host the Circleback demo next Wednesday at noon.",
+  "My number is 555-0142 if anything urgent comes up tonight.",
+  "We need three signatures: the seller, the lender, and the escrow agent.",
+  "It rained all morning, so the soccer game got pushed to Sunday afternoon.",
+  "Draft a short reply thanking them and proposing two times next week.",
+  "The head tracking feels smoother after the One Euro filter adjustments yesterday.",
+  "Check whether the invoice from Acme Industrial was paid on the 15th.",
+  "She recommended the pasta place on Fifth Street, just past the old theater.",
+  "Upload the signed LOI to the data room and notify the advisors.",
+  "Battery usage stayed under ten percent per hour during the full camera session.",
+  "Remember to renew the domain before it expires on April 30th.",
+  "Thanks again for the ride; I owe you lunch sometime next week."
+];
+
+function normalizeWords(s) {
+  // case-insensitive, punctuation-insensitive; keep @ . ' - inside tokens (emails, numbers)
+  var toks = String(s).toLowerCase()
+    .replace(/[^a-z0-9@.'\-\s]/g, ' ')
+    .split(/\s+/);
+  var out = [];
+  for (var i = 0; i < toks.length; i++) {
+    var t = toks[i].replace(/^[.'\-]+|[.'\-]+$/g, '');   // strip edge punctuation
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+function alignWER(ref, hyp) {
+  var n = ref.length, m = hyp.length, i, j;
+  var d = [];
+  for (i = 0; i <= n; i++) { d.push(new Array(m + 1)); d[i][0] = i; }
+  for (j = 0; j <= m; j++) d[0][j] = j;
+  for (i = 1; i <= n; i++) {
+    for (j = 1; j <= m; j++) {
+      var c = ref[i - 1] === hyp[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+    }
+  }
+  var ops = [];
+  i = n; j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (ref[i - 1] === hyp[j - 1] ? 0 : 1)) {
+      ops.unshift({ op: ref[i - 1] === hyp[j - 1] ? 'ok' : 'sub', ref: ref[i - 1], hyp: hyp[j - 1] });
+      i--; j--;
+    } else if (i > 0 && (j === 0 || d[i][j] === d[i - 1][j] + 1)) {
+      ops.unshift({ op: 'del', ref: ref[i - 1] }); i--;
+    } else {
+      ops.unshift({ op: 'ins', hyp: hyp[j - 1] }); j--;
+    }
+  }
+  var errs = 0;
+  for (var k = 0; k < ops.length; k++) if (ops[k].op !== 'ok') errs++;
+  // empty hypothesis → all deletions → WER 1.0; empty ref with hyp → 1.0
+  var wer = n > 0 ? errs / n : (m > 0 ? 1 : 0);
+  return { ops: ops, errs: errs, wer: wer, refLen: n };
+}
+
+function startDictation() {
+  var ROUNDS = 10;
+  var order = SENTENCES.map(function (_, i) { return i; });
+  for (var i = order.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = order[i]; order[i] = order[j]; order[j] = t;
+  }
+  var round = 0, wers = [], errsTotal = 0, wordsTotal = 0, done = false;
+  var scoredThisRound = false;
+
+  clearArena();
+  var div = document.createElement('div');
+  div.className = 'center-wrap';
+  div.innerHTML =
+    '<div class="refbox"><div class="label">READ THIS — HOLD RIGHT-OPTION &amp; WHISPER</div><div id="refsent"></div></div>' +
+    '<textarea id="dictin" placeholder="dictated text lands here as real keystrokes…" spellcheck="false"></textarea>' +
+    '<div class="diffbox" id="diff"></div>' +
+    '<div class="werline" id="werline"></div>' +
+    '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+      '<button class="bigbtn" id="scorebtn">SCORE</button>' +
+      '<button class="bigbtn subtle" id="nextbtn" style="display:none">NEXT SENTENCE</button>' +
+      '<button class="bigbtn subtle" id="clearbtn">CLEAR</button>' +
+    '</div>' +
+    '<div class="hint">SCORE compares word-by-word (case &amp; punctuation ignored) · sub=yellow del=red ins=underline</div>';
+  arena.appendChild(div);
+
+  var refEl = $('#refsent'), input = $('#dictin'), diffEl = $('#diff'), werEl = $('#werline');
+  var scoreBtn = $('#scorebtn'), nextBtn = $('#nextbtn'), clearBtn = $('#clearbtn');
+
+  function stats() {
+    setBar('DICTATION WER',
+      'sentence ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  ·  running WER ' + (wers.length ? (avg(wers) * 100).toFixed(1) + '%' : '—'));
+  }
+
+  function showSentence() {
+    scoredThisRound = false;
+    refEl.textContent = SENTENCES[order[round % order.length]];
+    input.value = '';
+    diffEl.innerHTML = '';
+    werEl.textContent = '';
+    scoreBtn.style.display = '';
+    nextBtn.style.display = 'none';
+    stats();
+    setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
+  }
+
+  function renderDiff(ops) {
+    var html = '';
+    for (var k = 0; k < ops.length; k++) {
+      var o = ops[k];
+      if (o.op === 'ok') html += '<span class="w ok">' + esc(o.ref) + '</span> ';
+      else if (o.op === 'sub') html += '<span class="w sub" title="said: ' + esc(o.hyp) + '">' + esc(o.ref) + '→' + esc(o.hyp) + '</span> ';
+      else if (o.op === 'del') html += '<span class="w del">' + esc(o.ref) + '</span> ';
+      else html += '<span class="w ins">+' + esc(o.hyp) + '</span> ';
+    }
+    diffEl.innerHTML = html;
+  }
+
+  function doScore() {
+    if (done || scoredThisRound) return;
+    var ref = normalizeWords(refEl.textContent);
+    var hyp = normalizeWords(input.value);
+    var res = alignWER(ref, hyp);
+    scoredThisRound = true;
+    wers.push(res.wer);
+    errsTotal += res.errs;
+    wordsTotal += res.refLen;
+    renderDiff(res.ops);
+    werEl.innerHTML = 'WER <span style="color:' + (res.wer <= 0.05 ? 'var(--green)' : res.wer <= 0.15 ? 'var(--yellow)' : 'var(--red)') + '">' +
+      (res.wer * 100).toFixed(1) + '%</span> · ' + res.errs + ' err / ' + res.refLen + ' words';
+    scoreBtn.style.display = 'none';
+    nextBtn.style.display = '';
+    round++;
+    stats();
+    if (round >= ROUNDS) {
+      nextBtn.textContent = 'FINISH';
+    }
+  }
+
+  function doNext() {
+    if (done) return;
+    if (round >= ROUNDS) { finish(); return; }
+    showSentence();
+  }
+
+  scoreBtn.addEventListener('click', doScore);
+  nextBtn.addEventListener('click', doNext);
+  clearBtn.addEventListener('click', function () {
+    if (!scoredThisRound) { input.value = ''; try { input.focus(); } catch (e) {} }
+  });
+
+  function finish() {
+    done = true;
+    var metrics = {
+      rounds: wers.length,
+      avg_wer: avg(wers) || 0,
+      micro_wer: wordsTotal ? errsTotal / wordsTotal : 0,
+      best_wer: wers.length ? Math.min.apply(null, wers) : null,
+      worst_wer: wers.length ? Math.max.apply(null, wers) : null,
+      total_errors: errsTotal,
+      total_ref_words: wordsTotal
+    };
+    recordDrill('dictation_wer', metrics);
+    showSummary('DICTATION WER', [
+      ['avg WER (per sentence)', (metrics.avg_wer * 100).toFixed(1) + '%'],
+      ['micro WER (all words pooled)', (metrics.micro_wer * 100).toFixed(1) + '%'],
+      ['best / worst sentence', (metrics.best_wer * 100).toFixed(0) + '% / ' + (metrics.worst_wer * 100).toFixed(0) + '%'],
+      ['total errors / words', errsTotal + ' / ' + wordsTotal]
+    ], 'dictation');
+  }
+
+  showSentence();
+
+  return {
+    name: 'dictation',
+    destroy: function () { done = true; }
+  };
+}
+
+/* ======================== SESSION VIEW ======================== */
+
+var DRILL_LABEL = {
+  target_click: 'TARGET CLICK', double_click: 'DOUBLE CLICK', drag_drop: 'DRAG & DROP',
+  scroll_band: 'SCROLL BAND', gesture_reaction: 'GESTURE REACTION', dictation_wer: 'DICTATION WER'
+};
+
+function keyMetricsLine(d) {
+  var m = d.metrics || {};
+  switch (d.type) {
+    case 'target_click':
+      return 'avg <b>' + fmtMs(m.avg_time_ms) + '</b> · accuracy <b>' + fmtPct(m.accuracy) + '</b> · misses/round <b>' + (m.misses_per_round != null ? m.misses_per_round.toFixed(2) : '—') + '</b>';
+    case 'double_click':
+      return 'latency <b>' + fmtMs(m.avg_dblclick_latency_ms) + '</b> · clean rate <b>' + fmtPct(m.success_rate_clean) + '</b> · partials <b>' + m.partial_single_clicks + '</b>';
+    case 'drag_drop':
+      return 'avg <b>' + fmtMs(m.avg_completion_ms) + '</b> · failed drops <b>' + m.failed_drops + '</b>';
+    case 'scroll_band':
+      return 'avg lock <b>' + fmtMs(m.avg_time_to_band_ms) + '</b> · overshoots/round <b>' + (m.overshoots_per_round != null ? m.overshoots_per_round.toFixed(2) : '—') + '</b>';
+    case 'gesture_reaction':
+      return 'accuracy <b>' + fmtPct(m.accuracy) + '</b> · avg latency <b>' + (m.avg_latency_ms != null ? m.avg_latency_ms + 'ms' : '—') + '</b> · timeouts <b>' + m.timeouts + '</b>';
+    case 'dictation_wer':
+      return 'avg WER <b>' + (m.avg_wer != null ? (m.avg_wer * 100).toFixed(1) + '%' : '—') + '</b> · errors <b>' + m.total_errors + '/' + m.total_ref_words + '</b>';
+    default:
+      return '';
+  }
+}
+
+function exportJSON() {
+  return JSON.stringify({
+    schema_version: 1,
+    ts: new Date().toISOString(),
+    drills: history.map(function (d) { return { type: d.type, ts: d.ts, metrics: d.metrics }; })
+  }, null, 2);
+}
+
+function showSession() {
+  setBar('SESSION', history.length + ' completed drill' + (history.length === 1 ? '' : 's'));
+  clearArena();
+  var wrap = document.createElement('div');
+  wrap.className = 'sesswrap';
+
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;justify-content:center';
+  head.innerHTML =
+    '<button class="bigbtn" id="exportbtn">EXPORT JSON</button>' +
+    '<button class="bigbtn subtle" id="copybtn">COPY TO CLIPBOARD</button>' +
+    '<button class="bigbtn subtle" id="wipebtn">CLEAR HISTORY</button>';
+  wrap.appendChild(head);
+
+  var note = document.createElement('div');
+  note.className = 'hint';
+  note.id = 'sessnote';
+  wrap.appendChild(note);
+
+  if (!history.length) {
+    var empty = document.createElement('div');
+    empty.className = 'hint';
+    empty.style.marginTop = '30px';
+    empty.textContent = 'no completed drills yet — finish a drill and it lands here (persists in localStorage)';
+    wrap.appendChild(empty);
+  } else {
+    for (var i = history.length - 1; i >= 0; i--) {
+      var d = history[i];
+      var row = document.createElement('div');
+      row.className = 'sessrow';
+      var when = '';
+      try { when = new Date(d.ts).toLocaleString(); } catch (e) { when = d.ts; }
+      row.innerHTML =
+        '<div class="head"><span>' + esc(DRILL_LABEL[d.type] || d.type) + '</span><span class="when">' + esc(when) + '</span></div>' +
+        '<div class="mets">' + keyMetricsLine(d) + '</div>';
+      wrap.appendChild(row);
+    }
+  }
+  arena.appendChild(wrap);
+
+  function setNote(msg) { note.textContent = msg; }
+
+  $('#exportbtn').addEventListener('click', function () {
+    try {
+      var blob = new Blob([exportJSON()], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'wq-playground-' + Date.now() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      setNote('downloaded ✓');
+    } catch (e) {
+      setNote('download failed — use COPY TO CLIPBOARD');
+    }
+  });
+
+  $('#copybtn').addEventListener('click', function () {
+    var txt = exportJSON();
+    function legacyCopy() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = txt;
+        ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        ta.remove();
+        setNote(ok ? 'copied ✓' : 'copy failed');
+      } catch (e) { setNote('copy failed'); }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(
+        function () { setNote('copied ✓'); },
+        legacyCopy
+      );
+    } else legacyCopy();
+  });
+
+  $('#wipebtn').addEventListener('click', function () {
+    history = [];
+    lsSet(LS_KEY, history);
+    showSession();
+  });
+
+  return { name: 'session', destroy: function () {} };
+}
+
+/* ======================== global wiring ======================== */
+
+// menu rail (left-wink friendly: whole button is the hit area)
+(function () {
+  var btns = document.querySelectorAll('.railbtn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].addEventListener('click', function () {
+      startDrill(this.getAttribute('data-drill'));
+    });
+  }
+})();
+$('#bar-exit').addEventListener('click', goMenu);
+
+// no context menus — right-wink must stay a clean right-click signal
+document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+// keep wink-drag from selecting text / dragging images
+document.addEventListener('dragstart', function (e) { e.preventDefault(); });
+
+// --- ticker + routing: all raw events flow through here ---
+document.addEventListener('mousedown', function (e) {
+  var btn = e.button === 0 ? 'L' : e.button === 2 ? 'R' : 'M';
+  tick('click ' + btn + ' @' + e.clientX + ',' + e.clientY);
+  if (active && active.onMouseDown) { try { active.onMouseDown(e); } catch (err) {} }
+}, true);
+
+document.addEventListener('click', function (e) {
+  if (active && active.onClick) { try { active.onClick(e); } catch (err) {} }
+  // stray-click tracking for target drill (clicks outside arena)
+  if (active && active.onStrayClick && !arena.contains(e.target)) {
+    try { active.onStrayClick(e); } catch (err) {}
+  }
+}, true);
+
+document.addEventListener('dblclick', function (e) {
+  tick('dblclick @' + e.clientX + ',' + e.clientY);
+  if (active && active.onDblClick) { try { active.onDblClick(e); } catch (err) {} }
+}, true);
+
+document.addEventListener('wheel', function (e) {
+  var dy = Math.round(e.deltaY);
+  tick('wheel ' + (dy > 0 ? '+' : '') + dy);
+  if (active && active.onWheel) { try { active.onWheel(e); } catch (err) {} }
+}, { capture: true, passive: true });
+
+document.addEventListener('keydown', function (e) {
+  tick('key ' + e.key);
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    var consumed = false;
+    if (active && active.handleEscape) {
+      try { consumed = !!active.handleEscape(); } catch (err) {}
+    }
+    if (!consumed) goMenu();   // ESC = head-shake = back to menu, even from the textarea
+    return;
+  }
+  if (active && active.onKeyDown) { try { active.onKeyDown(e); } catch (err) {} }
+}, true);
+
+/* boot */
+goMenu();
+
+})();
+</script>
+</body>
+</html>
