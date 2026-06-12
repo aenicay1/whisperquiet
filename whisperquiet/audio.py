@@ -62,28 +62,41 @@ class MicRecorder:
         with self._lock:
             self._chunks = []
         try:
-            self._stream = sd.InputStream(
+            self._open_stream()
+        except Exception:
+            # PortAudio snapshots the device list at init; after a hot-swap
+            # (headphones on/off) it goes stale and opens fail even though
+            # System Settings shows the right mic. Re-scan and retry once so
+            # "default input" always means the CURRENT system default.
+            print("mic open failed — rescanning audio devices", flush=True)
+            sd._terminate()
+            sd._initialize()
+            self._open_stream()
+
+    def _open_stream(self) -> None:
+        try:
+            stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
                 callback=self._on_audio,
             )
-            self._stream.start()
-            self._rate = SAMPLE_RATE
+            stream.start()
+            self._stream, self._rate = stream, SAMPLE_RATE
         except Exception:
             # some devices (AirPods etc.) refuse 16k; open at native rate
             # and resample in snapshot()
             info = sd.query_devices(kind="input")
             rate = int(info["default_samplerate"])
-            self._stream = sd.InputStream(
+            stream = sd.InputStream(
                 samplerate=rate,
                 channels=1,
                 dtype="float32",
                 callback=self._on_audio,
             )
-            self._stream.start()
-            self._rate = rate
-            print(f"mic: 16k refused, using {rate}Hz ({info['name']})", flush=True)
+            stream.start()
+            self._stream, self._rate = stream, rate
+            print(f"mic: using {rate}Hz ({info['name']})", flush=True)
 
     def _on_audio(self, indata, frames, time_info, status) -> None:
         with self._lock:
