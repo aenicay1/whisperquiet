@@ -61,13 +61,29 @@ class MicRecorder:
     def start(self) -> None:
         with self._lock:
             self._chunks = []
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            callback=self._on_audio,
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                callback=self._on_audio,
+            )
+            self._stream.start()
+            self._rate = SAMPLE_RATE
+        except Exception:
+            # some devices (AirPods etc.) refuse 16k; open at native rate
+            # and resample in snapshot()
+            info = sd.query_devices(kind="input")
+            rate = int(info["default_samplerate"])
+            self._stream = sd.InputStream(
+                samplerate=rate,
+                channels=1,
+                dtype="float32",
+                callback=self._on_audio,
+            )
+            self._stream.start()
+            self._rate = rate
+            print(f"mic: 16k refused, using {rate}Hz ({info['name']})", flush=True)
 
     def _on_audio(self, indata, frames, time_info, status) -> None:
         with self._lock:
@@ -78,7 +94,16 @@ class MicRecorder:
         with self._lock:
             if not self._chunks:
                 return np.zeros(0, dtype=np.float32)
-            return np.concatenate(self._chunks)[:, 0]
+            audio = np.concatenate(self._chunks)[:, 0]
+        rate = getattr(self, "_rate", SAMPLE_RATE)
+        if rate != SAMPLE_RATE and audio.size:
+            n_out = int(audio.size * SAMPLE_RATE / rate)
+            audio = np.interp(
+                np.linspace(0, audio.size - 1, n_out),
+                np.arange(audio.size),
+                audio,
+            ).astype(np.float32)
+        return audio
 
     def level(self) -> float:
         """Mic level 0..1 over the last ~150ms, scaled for quiet speech."""

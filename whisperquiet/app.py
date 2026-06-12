@@ -231,7 +231,15 @@ class WhisperQuietApp(rumps.App):
             return  # previous session still finishing; drop this press
         self._recording.set()
         self.status_item.title = "Status: listening"
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except Exception as exc:
+            print("mic failed to open:", exc, flush=True)
+            self._recording.clear()
+            self.overlay.show()
+            self.overlay.update("⚠️ mic failed — check input device")
+            threading.Timer(2.0, self.overlay.hide).start()
+            return
         self.overlay.show()
         self.indicator.show()
         self._worker = threading.Thread(target=self._stream_loop, daemon=True)
