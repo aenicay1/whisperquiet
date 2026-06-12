@@ -9,3 +9,4 @@ alias wq-start='open "$HOME/Applications/WhisperQuiet.app"'
 alias wq-log='tail -20 "$HOME/Library/Logs/whisperquiet.log"'
 alias wq-report='~/Projects/whisperquiet/.venv/bin/python ~/Projects/whisperquiet/scripts/report.py'  # dogfood scorecard
 alias wq-playground='open ~/Projects/whisperquiet/playground/index.html'  # training drills
+alias wq-vocab='python3 ~/Projects/whisperquiet/scripts/vocab.py'  # add words that trip dictation
