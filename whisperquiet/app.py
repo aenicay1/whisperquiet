@@ -344,6 +344,7 @@ class WhisperQuietApp(rumps.App):
         self.status_item.title = "Status: finishing…"
         import numpy as np
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
+        print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)
         if audio.size == last_size and last_partial:
             final = last_partial  # nothing new since the last partial
         elif rms < 2e-4:
@@ -374,6 +375,11 @@ class WhisperQuietApp(rumps.App):
             self.transcripts.log(
                 "pair", {"raw": raw_final, "clean": final, "audio": audio_name}
             )
+        print(f"final: {len(final or '')} chars", flush=True)
+        if not final and audio.size > 16000:
+            self.overlay.show()
+            self.overlay.update("…heard nothing — check mic/level bar")
+            threading.Timer(1.5, self.overlay.hide).start()
         if final:
             inject.type_text(final, cfg.inject_mode)
             self.stats.record("dictation")
