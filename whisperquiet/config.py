@@ -23,7 +23,11 @@ class Config:
     stream_interval: float = 0.7
     # "keystrokes" injects unicode key events; "paste" uses clipboard + Cmd-V
     inject_mode: str = "keystrokes"
-    # Gesture/cursor settings land here in week 3-4 (see whisperquiet/control/)
+    # rules-based filler/repeat/correction cleanup on dictation output
+    cleanup_enabled: bool = True
+    # keep raw->cleaned transcript pairs on-device (personalization corpus)
+    keep_transcripts: bool = True
+    # Gesture/cursor settings, calibration, tunables, experimental flags
     gestures: dict = field(default_factory=dict)
     # Names/jargon the user dictates often; biases the whisper decoder
     vocabulary: list[str] = field(default_factory=list)

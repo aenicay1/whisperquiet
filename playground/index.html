@@ -76,6 +76,7 @@
   .railbtn:hover { border-color: var(--teal-dim); background: var(--panel2); }
   .railbtn.active { border-color: var(--teal); color: var(--teal); }
   .railbtn.session { margin-top: auto; }
+  .railsec { font-family: var(--mono); font-size: 10px; color: var(--txt-dim); letter-spacing: 3px; padding: 10px 8px 2px; }
 
   /* ---------- stage ---------- */
   #stage { flex: 1; position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
@@ -273,6 +274,15 @@
   .diffbox .w.del { color: var(--red); text-decoration: line-through; background: rgba(240,98,98,.1); }
   .diffbox .w.ins { color: var(--teal); text-decoration: underline; }
   .werline { font-family: var(--mono); font-size: 15px; letter-spacing: 1px; }
+  .tailflag { font-family: var(--mono); font-size: 12px; color: var(--red); letter-spacing: 1px; }
+  .wertrend { max-width: 720px; width: 100%; display: flex; align-items: flex-end; gap: 6px; min-height: 0; }
+  .wertrend .tbar { width: 16px; min-height: 3px; border-radius: 3px 3px 0 0; background: var(--green); }
+  .wertrend .tbar.warn { background: var(--yellow); }
+  .wertrend .tbar.bad { background: var(--red); }
+
+  /* ---------- pre-drill setup toggles ---------- */
+  .prelabel { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12px; color: var(--txt); letter-spacing: 1px; cursor: pointer; padding: 12px 0 2px; }
+  .prelabel input { width: 20px; height: 20px; accent-color: var(--teal); cursor: pointer; }
 
   /* ---------- settings ---------- */
   .setwrap { position: absolute; inset: 0; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
@@ -332,13 +342,15 @@
 
 <div id="app">
   <aside id="rail">
-    <div class="brand">WHISPERQUIET<small>TRAINING PLAYGROUND</small></div>
-    <button class="railbtn" data-drill="target">1 · TARGET CLICK<small>left-wink accuracy &amp; speed</small></button>
-    <button class="railbtn" data-drill="double">2 · DOUBLE CLICK<small>double-left-wink timing</small></button>
-    <button class="railbtn" data-drill="drag">3 · DRAG &amp; DROP<small>open-mouth hold control</small></button>
+    <div class="brand">WHISPERQUIET<small>TRAINING PLAYGROUND<br>voice-first · face-assist</small></div>
+    <div class="railsec">CORE</div>
+    <button class="railbtn" data-drill="dictation">1 · DICTATION WER<small>whisper accuracy · cleanup layer</small></button>
+    <button class="railbtn" data-drill="target">2 · TARGET CLICK<small>left-wink accuracy &amp; speed</small></button>
+    <button class="railbtn" data-drill="double">3 · DOUBLE CLICK<small>double-left-wink timing</small></button>
     <button class="railbtn" data-drill="scroll">4 · SCROLL BAND<small>brow-raise / pucker precision</small></button>
     <button class="railbtn" data-drill="gesture">5 · GESTURE REACTION<small>threshold-tuning goldmine</small></button>
-    <button class="railbtn" data-drill="dictation">6 · DICTATION WER<small>whisper accuracy scoring</small></button>
+    <div class="railsec">EXPERIMENTAL</div>
+    <button class="railbtn" data-drill="drag">6 · DRAG &amp; DROP<small>open-mouth hold control</small></button>
     <button class="railbtn" data-drill="settings">SETTINGS ⚙<small>live app tuning · 127.0.0.1:8377</small></button>
     <button class="railbtn session" data-drill="session">SESSION<small>aggregate stats · export JSON</small></button>
   </aside>
@@ -918,37 +930,70 @@ function startScrollBand() {
 
 /* ==================== DRILL 5 · GESTURE REACTION ==================== */
 
-var GESTURES = ['LEFT WINK', 'RIGHT WINK', 'DOUBLE WINK', 'NOD', 'SHAKE', 'SCROLL UP', 'SCROLL DOWN'];
+var GESTURES_CORE = ['LEFT WINK', 'RIGHT WINK', 'DOUBLE WINK', 'SCROLL UP', 'SCROLL DOWN'];
+var GESTURES_EXPERIMENTAL = ['NOD', 'SHAKE'];
 
 function startGestureReaction() {
   var TOTAL = 20, TIMEOUT = 5000;
-  var queue = [];
-  // ~3 of each, shuffled, trimmed to 20
-  for (var r = 0; r < 3; r++) queue = queue.concat(GESTURES);
-  for (var i = queue.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
-  }
-  queue.length = TOTAL;
+  var pool = null, queue = [], started = false;
 
   var idx = -1, live = false, shownAt = 0, done = false;
   var delayTimer = null, timeoutTimer = null, pendingClickTimer = null, cooldownUntil = 0, wheelCooldownUntil = 0;
   var perG = {};
-  GESTURES.forEach(function (g) { perG[g] = { shown: 0, correct: 0, wrong: 0, timeout: 0, lats: [] }; });
+  var gp = null, gf = null;
 
+  // pre-drill setup: first-class gestures only by default (pivot #2)
+  setBar('GESTURE REACTION', 'configure & start');
   clearArena();
-  var div = document.createElement('div');
-  div.className = 'center-wrap';
-  div.innerHTML =
-    '<div class="gprompt waiting" id="gp">get ready…</div>' +
-    '<div class="gfeedback" id="gf"></div>' +
-    '<div class="hint">prompt appears → perform that gesture · 5s timeout · ESC between prompts exits</div>';
-  arena.appendChild(div);
-  var gp = $('#gp'), gf = $('#gf');
+  var setup = document.createElement('div');
+  setup.className = 'center-wrap';
+  setup.innerHTML =
+    '<div class="card">' +
+      '<h2>GESTURE REACTION — SETUP</h2>' +
+      '<div style="font-size:13px;line-height:1.8;color:var(--txt-dim)">' +
+        'first-class prompts: LEFT WINK · RIGHT WINK · DOUBLE WINK · SCROLL UP · SCROLL DOWN' +
+      '</div>' +
+      '<label class="prelabel"><input type="checkbox" id="gexp"> include experimental (NOD/SHAKE)</label>' +
+      '<div class="btns"><button class="bigbtn" id="gstart">START</button></div>' +
+    '</div>';
+  arena.appendChild(setup);
+  var expBox = $('#gexp');
+  expBox.checked = !!lsGet('wq_gesture_experimental', false);
+
+  function begin() {
+    if (started || done) return;
+    started = true;
+    var expOn = !!expBox.checked;
+    lsSet('wq_gesture_experimental', expOn);
+    pool = GESTURES_CORE.concat(expOn ? GESTURES_EXPERIMENTAL : []);
+    perG = {};
+    pool.forEach(function (g) { perG[g] = { shown: 0, correct: 0, wrong: 0, timeout: 0, lats: [] }; });
+    queue = [];
+    var reps = Math.ceil(TOTAL / pool.length);   // even mix, shuffled, trimmed to 20
+    for (var r = 0; r < reps; r++) queue = queue.concat(pool);
+    for (var i = queue.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
+    }
+    queue.length = TOTAL;
+
+    clearArena();
+    var div = document.createElement('div');
+    div.className = 'center-wrap';
+    div.innerHTML =
+      '<div class="gprompt waiting" id="gp">get ready…</div>' +
+      '<div class="gfeedback" id="gf"></div>' +
+      '<div class="hint">prompt appears → perform that gesture · 5s timeout · ESC between prompts exits</div>';
+    arena.appendChild(div);
+    gp = $('#gp'); gf = $('#gf');
+    stats();
+    nextPrompt();
+  }
+  $('#gstart').addEventListener('click', begin);
 
   function stats() {
     var c = 0, w = 0, t = 0;
-    GESTURES.forEach(function (g) { c += perG[g].correct; w += perG[g].wrong; t += perG[g].timeout; });
+    pool.forEach(function (g) { c += perG[g].correct; w += perG[g].wrong; t += perG[g].timeout; });
     setBar('GESTURE REACTION',
       'prompt ' + Math.min(idx + 1, TOTAL) + '/' + TOTAL +
       '  ·  ✓ ' + c + '  ·  ✗ ' + w + '  ·  ⌛ ' + t);
@@ -1027,7 +1072,7 @@ function startGestureReaction() {
     done = true;
     var c = 0, w = 0, t = 0, allLats = [];
     var tableRows = '';
-    GESTURES.forEach(function (g) {
+    pool.forEach(function (g) {
       var s = perG[g];
       c += s.correct; w += s.wrong; t += s.timeout;
       allLats = allLats.concat(s.lats);
@@ -1040,7 +1085,7 @@ function startGestureReaction() {
     });
     var shown = c + w + t;
     var perGMetrics = {};
-    GESTURES.forEach(function (g) {
+    pool.forEach(function (g) {
       var s = perG[g];
       perGMetrics[g] = {
         shown: s.shown, correct: s.correct, wrong: s.wrong, timeout: s.timeout,
@@ -1052,6 +1097,7 @@ function startGestureReaction() {
       correct: c, wrong: w, timeouts: t,
       accuracy: shown ? c / shown : 0,
       avg_latency_ms: allLats.length ? Math.round(avg(allLats)) : null,
+      experimental_included: pool.indexOf('NOD') !== -1,
       per_gesture: perGMetrics
     };
     recordDrill('gesture_reaction', metrics);
@@ -1065,9 +1111,6 @@ function startGestureReaction() {
       ['timeouts', String(t)]
     ], 'gesture', table);
   }
-
-  stats();
-  nextPrompt();
 
   return {
     name: 'gesture',
@@ -1091,8 +1134,9 @@ function startGestureReaction() {
       if (e.key === 'Enter') input('NOD');
     },
     handleEscape: function () {
-      if (live) { input('SHAKE'); return true; }  // consumed as gesture answer
-      return false;                                // between prompts → exit to menu
+      // SHAKE is only a valid answer when the experimental pool is in play
+      if (live && pool && pool.indexOf('SHAKE') !== -1) { input('SHAKE'); return true; }
+      return false;                                // between prompts / setup → exit to menu
     },
     destroy: function () {
       done = true;
@@ -1148,6 +1192,42 @@ var SENTENCES = [
   "Thanks again for the ride; I owe you lunch sometime next week."
 ];
 
+/* DISFLUENT set: prompt is displayed (speak the fillers aloud); ref is what
+   scoring compares against. Low WER here = the cleanup layer is stripping
+   fillers correctly. */
+var SENTENCES_DISFLUENT = [
+  { prompt: "I think, um, we should, uh, move the meeting to Thursday.",
+    ref: "I think we should move the meeting to Thursday." },
+  { prompt: "Um, can you send the, uh, updated deck to the deal team tonight?",
+    ref: "Can you send the updated deck to the deal team tonight?" },
+  { prompt: "The invoice from Acme was, um, paid on the, you know, fifteenth.",
+    ref: "The invoice from Acme was paid on the fifteenth." },
+  { prompt: "So, uh, revenue grew about, um, twelve percent in the Midwest region.",
+    ref: "So revenue grew about twelve percent in the Midwest region." },
+  { prompt: "I mean, the second draft reads, uh, way better than the first.",
+    ref: "The second draft reads way better than the first." },
+  { prompt: "Let's, um, schedule the kickoff for, uh, March third at noon.",
+    ref: "Let's schedule the kickoff for March third at noon." },
+  { prompt: "Her flight lands at, um, seven forty-five, so dinner starts around nine.",
+    ref: "Her flight lands at seven forty-five, so dinner starts around nine." },
+  { prompt: "We need, uh, three signatures: the seller, the lender, and, um, the escrow agent.",
+    ref: "We need three signatures: the seller, the lender, and the escrow agent." },
+  { prompt: "Could you, you know, double-check the wire instructions before we send it?",
+    ref: "Could you double-check the wire instructions before we send it?" },
+  { prompt: "The new hire starts, um, Monday and her badge is, uh, already prepared.",
+    ref: "The new hire starts Monday and her badge is already prepared." },
+  { prompt: "Honestly, the build keeps, um, failing on the, uh, second test suite.",
+    ref: "Honestly, the build keeps failing on the second test suite." },
+  { prompt: "Add, uh, milk, eggs, and, um, two avocados to the grocery list.",
+    ref: "Add milk, eggs, and two avocados to the grocery list." },
+  { prompt: "The contractor quoted, um, eighteen thousand for the roof and, uh, gutters.",
+    ref: "The contractor quoted eighteen thousand for the roof and gutters." },
+  { prompt: "Ping me when the, uh, build finishes so I can, um, test the thresholds.",
+    ref: "Ping me when the build finishes so I can test the thresholds." },
+  { prompt: "We should, you know, revisit the budget before, um, Thursday's review.",
+    ref: "We should revisit the budget before Thursday's review." }
+];
+
 function normalizeWords(s) {
   // case-insensitive, punctuation-insensitive; keep @ . ' - inside tokens (emails, numbers)
   var toks = String(s).toLowerCase()
@@ -1192,43 +1272,92 @@ function alignWER(ref, hyp) {
 }
 
 function startDictation() {
-  var ROUNDS = 10;
-  var order = SENTENCES.map(function (_, i) { return i; });
-  for (var i = order.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var t = order[i]; order[i] = order[j]; order[j] = t;
-  }
-  var round = 0, wers = [], errsTotal = 0, wordsTotal = 0, done = false;
-  var scoredThisRound = false;
+  var ROUNDS = 10, TAIL_RATIO = 1.5;
+  var round = 0, wers = [], errsTotal = 0, wordsTotal = 0, tailFlags = 0, done = false;
+  var scoredThisRound = false, started = false;
+  var entries = null, order = null, currentRef = '', setName = 'standard';
+  var refEl = null, input = null, diffEl = null, werEl = null, trendEl = null;
+  var scoreBtn = null, nextBtn = null, clearBtn = null;
 
+  // pre-drill setup: STANDARD (read verbatim) vs DISFLUENT (cleanup-layer test)
+  setBar('DICTATION WER', 'configure & start');
   clearArena();
-  var div = document.createElement('div');
-  div.className = 'center-wrap';
-  div.innerHTML =
-    '<div class="refbox"><div class="label">READ THIS — HOLD RIGHT-OPTION &amp; WHISPER</div><div id="refsent"></div></div>' +
-    '<textarea id="dictin" placeholder="dictated text lands here as real keystrokes…" spellcheck="false"></textarea>' +
-    '<div class="diffbox" id="diff"></div>' +
-    '<div class="werline" id="werline"></div>' +
-    '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
-      '<button class="bigbtn" id="scorebtn">SCORE</button>' +
-      '<button class="bigbtn subtle" id="nextbtn" style="display:none">NEXT SENTENCE</button>' +
-      '<button class="bigbtn subtle" id="clearbtn">CLEAR</button>' +
-    '</div>' +
-    '<div class="hint">SCORE compares word-by-word (case &amp; punctuation ignored) · sub=yellow del=red ins=underline</div>';
-  arena.appendChild(div);
+  var setup = document.createElement('div');
+  setup.className = 'center-wrap';
+  setup.innerHTML =
+    '<div class="card">' +
+      '<h2>DICTATION WER — SETUP</h2>' +
+      '<div style="font-size:13px;line-height:1.8;color:var(--txt-dim)">' +
+        'STANDARD: read each sentence verbatim.<br>' +
+        'DISFLUENT: the prompt shows fillers (um, uh, you know) — speak them aloud; ' +
+        'scoring compares against the clean sentence, so a low WER means the cleanup layer is stripping them.' +
+      '</div>' +
+      '<label class="prelabel"><input type="checkbox" id="dictdisfl"> DISFLUENT set (tests cleanup layer)</label>' +
+      '<div class="btns"><button class="bigbtn" id="dictstart">START</button></div>' +
+    '</div>';
+  arena.appendChild(setup);
+  var disflBox = $('#dictdisfl');
+  disflBox.checked = !!lsGet('wq_dictation_disfluent', false);
 
-  var refEl = $('#refsent'), input = $('#dictin'), diffEl = $('#diff'), werEl = $('#werline');
-  var scoreBtn = $('#scorebtn'), nextBtn = $('#nextbtn'), clearBtn = $('#clearbtn');
+  function begin() {
+    if (started || done) return;
+    started = true;
+    var disfl = !!disflBox.checked;
+    lsSet('wq_dictation_disfluent', disfl);
+    setName = disfl ? 'disfluent' : 'standard';
+    entries = disfl
+      ? SENTENCES_DISFLUENT.slice()
+      : SENTENCES.map(function (s) { return { prompt: s, ref: s }; });
+    order = entries.map(function (_, i) { return i; });
+    for (var i = order.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = order[i]; order[i] = order[j]; order[j] = t;
+    }
+
+    clearArena();
+    var div = document.createElement('div');
+    div.className = 'center-wrap';
+    div.innerHTML =
+      '<div class="refbox"><div class="label">' +
+        (disfl ? 'READ THIS — SPEAK THE FILLERS TOO · HOLD RIGHT-OPTION &amp; WHISPER'
+               : 'READ THIS — HOLD RIGHT-OPTION &amp; WHISPER') +
+      '</div><div id="refsent"></div></div>' +
+      '<textarea id="dictin" placeholder="dictated text lands here as real keystrokes…" spellcheck="false"></textarea>' +
+      '<div class="diffbox" id="diff"></div>' +
+      '<div class="werline" id="werline"></div>' +
+      '<div class="wertrend" id="wertrend"></div>' +
+      '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+        '<button class="bigbtn" id="scorebtn">SCORE</button>' +
+        '<button class="bigbtn subtle" id="nextbtn" style="display:none">NEXT SENTENCE</button>' +
+        '<button class="bigbtn subtle" id="clearbtn">CLEAR</button>' +
+      '</div>' +
+      '<div class="hint">SCORE compares word-by-word (case &amp; punctuation ignored) · sub=yellow del=red ins=underline</div>';
+    arena.appendChild(div);
+
+    refEl = $('#refsent'); input = $('#dictin'); diffEl = $('#diff'); werEl = $('#werline'); trendEl = $('#wertrend');
+    scoreBtn = $('#scorebtn'); nextBtn = $('#nextbtn'); clearBtn = $('#clearbtn');
+
+    scoreBtn.addEventListener('click', doScore);
+    nextBtn.addEventListener('click', doNext);
+    clearBtn.addEventListener('click', function () {
+      if (!scoredThisRound) { input.value = ''; try { input.focus(); } catch (e) {} }
+    });
+    showSentence();
+  }
+  $('#dictstart').addEventListener('click', begin);
 
   function stats() {
     setBar('DICTATION WER',
-      'sentence ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      setName.toUpperCase() +
+      '  ·  sentence ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
       '  ·  running WER ' + (wers.length ? (avg(wers) * 100).toFixed(1) + '%' : '—'));
   }
 
   function showSentence() {
     scoredThisRound = false;
-    refEl.textContent = SENTENCES[order[round % order.length]];
+    var e = entries[order[round % order.length]];
+    refEl.textContent = e.prompt;
+    currentRef = e.ref;
     input.value = '';
     diffEl.innerHTML = '';
     werEl.textContent = '';
@@ -1236,6 +1365,18 @@ function startDictation() {
     nextBtn.style.display = 'none';
     stats();
     setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
+  }
+
+  /* per-round WER trend bars (0% → short green, 50%+ → tall red) */
+  function renderTrend() {
+    var html = '';
+    for (var k = 0; k < wers.length; k++) {
+      var w = wers[k];
+      var h = Math.max(3, Math.min(50, Math.round(w * 100)));
+      var cls = w <= 0.05 ? '' : w <= 0.15 ? ' warn' : ' bad';
+      html += '<div class="tbar' + cls + '" style="height:' + h + 'px" title="round ' + (k + 1) + ': ' + (w * 100).toFixed(1) + '%"></div>';
+    }
+    trendEl.innerHTML = html;
   }
 
   function renderDiff(ops) {
@@ -1252,7 +1393,7 @@ function startDictation() {
 
   function doScore() {
     if (done || scoredThisRound) return;
-    var ref = normalizeWords(refEl.textContent);
+    var ref = normalizeWords(currentRef);   // clean reference, not the displayed prompt
     var hyp = normalizeWords(input.value);
     var res = alignWER(ref, hyp);
     scoredThisRound = true;
@@ -1262,6 +1403,13 @@ function startDictation() {
     renderDiff(res.ops);
     werEl.innerHTML = 'WER <span style="color:' + (res.wer <= 0.05 ? 'var(--green)' : res.wer <= 0.15 ? 'var(--yellow)' : 'var(--red)') + '">' +
       (res.wer * 100).toFixed(1) + '%</span> · ' + res.errs + ' err / ' + res.refLen + ' words';
+    // tail-garbage detection (repo issue #1: hallucination tails)
+    if (res.refLen > 0 && hyp.length > res.refLen * TAIL_RATIO) {
+      tailFlags++;
+      werEl.innerHTML += ' · <span class="tailflag">⚠ possible hallucination tail — ' +
+        hyp.length + ' words vs ' + res.refLen + ' ref</span>';
+    }
+    renderTrend();
     scoreBtn.style.display = 'none';
     nextBtn.style.display = '';
     round++;
@@ -1277,12 +1425,6 @@ function startDictation() {
     showSentence();
   }
 
-  scoreBtn.addEventListener('click', doScore);
-  nextBtn.addEventListener('click', doNext);
-  clearBtn.addEventListener('click', function () {
-    if (!scoredThisRound) { input.value = ''; try { input.focus(); } catch (e) {} }
-  });
-
   function finish() {
     done = true;
     var metrics = {
@@ -1292,18 +1434,21 @@ function startDictation() {
       best_wer: wers.length ? Math.min.apply(null, wers) : null,
       worst_wer: wers.length ? Math.max.apply(null, wers) : null,
       total_errors: errsTotal,
-      total_ref_words: wordsTotal
+      total_ref_words: wordsTotal,
+      sentence_set: setName,
+      tail_flags: tailFlags,
+      round_wers: wers.map(function (w) { return Math.round(w * 1000) / 1000; })
     };
     recordDrill('dictation_wer', metrics);
     showSummary('DICTATION WER', [
+      ['sentence set', setName.toUpperCase()],
       ['avg WER (per sentence)', (metrics.avg_wer * 100).toFixed(1) + '%'],
       ['micro WER (all words pooled)', (metrics.micro_wer * 100).toFixed(1) + '%'],
       ['best / worst sentence', (metrics.best_wer * 100).toFixed(0) + '% / ' + (metrics.worst_wer * 100).toFixed(0) + '%'],
-      ['total errors / words', errsTotal + ' / ' + wordsTotal]
+      ['total errors / words', errsTotal + ' / ' + wordsTotal],
+      ['hallucination-tail flags', String(tailFlags)]
     ], 'dictation');
   }
-
-  showSentence();
 
   return {
     name: 'dictation',

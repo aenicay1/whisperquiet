@@ -39,8 +39,12 @@ class CameraController:
         on_calibrated: Callable[[dict], None] | None = None,
         stats=None,
         cursor_gain: float | None = None,
+        experimental: dict | None = None,
     ) -> None:
         self._stats = stats
+        # pivot #2: head cursor / jaw drag / nod-shake are config-off
+        self._exp = {"head_cursor": False, "jaw_drag": False, "nod_shake": False}
+        self._exp.update(experimental or {})
         self._jaw_enabled = jaw_toggle_dictation
         self._on_toggle_dictation = on_toggle_dictation
         self._saved_calibration = saved_calibration or None
@@ -101,8 +105,16 @@ class CameraController:
                 else:
                     self.hud.set_instruction(None)
 
+    def set_experimental(self, values: dict) -> None:
+        self._exp.update({k: bool(v) for k, v in values.items()})
+        if not self._exp.get("head_cursor") and self.cursor_enabled:
+            self.toggle_cursor()
+
     def toggle_cursor(self) -> bool:
         """Flip head-cursor mode; returns the new state."""
+        if not self.cursor_enabled and not self._exp.get("head_cursor"):
+            self.hud.flash_event("CURSOR: EXPERIMENTAL (see Settings)")
+            return False
         self.cursor_enabled = not self.cursor_enabled
         if self.cursor_enabled:
             self.head.reset()
@@ -202,7 +214,7 @@ class CameraController:
         self.engine.process(frame.blendshapes, t)
         self.hud.set_gesture_levels(self._gesture_levels(frame.blendshapes))
         nose = frame.landmarks[NOSE_TIP]
-        if not self.paused:
+        if not self.paused and self._exp.get("nod_shake"):
             head_gesture = self._nodshake.process(float(nose[0]), float(nose[1]), t)
             if head_gesture == "nod":
                 inject.press_key(inject.KEY_RETURN)
@@ -254,6 +266,9 @@ class CameraController:
             return
         if self.paused:
             return  # cheek puff is the only gesture that acts while paused
+        if event in (GestureEvent.DRAG_START, GestureEvent.DRAG_END):
+            if not (self._jaw_enabled or self._exp.get("jaw_drag")):
+                return  # jaw conflicts with speech; experimental-off by default
         self.hud.flash_event(flash_label(event.value))
         if event is GestureEvent.LEFT_CLICK:
             mouse.click("left")

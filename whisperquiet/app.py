@@ -10,6 +10,7 @@ import rumps
 from . import config as config_mod
 from . import inject, transcribe
 from .audio import MicRecorder
+from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
 from .settings_server import SettingsServer
 from .stats import SessionStats
@@ -34,6 +35,7 @@ class WhisperQuietApp(rumps.App):
 
         self.stats = SessionStats()
         self.feedback = FeedbackLog()
+        self.transcripts = FeedbackLog(config_mod.CONFIG_DIR / "transcripts.jsonl")
         self._last_commit_t = 0.0
         self._last_words = 0
         self._edit_keys = 0
@@ -79,13 +81,20 @@ class WhisperQuietApp(rumps.App):
         "puff_on": (0.5, 0.3, 0.9, 0.01, "Pause trigger (puff)", "Mouth", "How strong a cheek puff must be to pause or resume all camera control. The panic switch - reachable but not hair-trigger."),
         "puff_hold": (0.3, 0.15, 1.0, 0.05, "Pause hold time", "Mouth", "Seconds the puff must be held to toggle pause. Raise if it toggles accidentally."),
         "stream_interval": (0.7, 0.3, 2.0, 0.1, "Partial update interval", "Dictation", "How often the live preview re-transcribes while you hold the talk key. Lower = snappier preview, more compute and battery."),
+        "cleanup_enabled": (1, 0, 1, 1, "Dictation cleanup", "Dictation", "1 = remove fillers (um/uh), collapse repeats, resolve corrections like - no wait - before text lands. 0 = raw transcript."),
+        "exp_head_cursor": (0, 0, 1, 1, "Head cursor (experimental)", "Experimental", "1 = head movement drives the pointer. Demoted in pivot #2: workable but the jankiest feature. Off keeps cursor toggles inert."),
+        "exp_jaw_drag": (0, 0, 1, 1, "Jaw drag (experimental)", "Experimental", "1 = open-mouth-hold drags. Off by default: talking moves your jaw, so this fights dictation."),
+        "exp_nod_shake": (0, 0, 1, 1, "Nod/shake keys (experimental)", "Experimental", "1 = quick nod presses Enter, head-shake presses Escape. Off by default: conversation head movement risks misfires."),
     }
 
     def _stored_tunables(self) -> dict:
         return self.config.gestures.get("tunables", {})
 
     def _tunables_state(self) -> dict:
-        stored = self._stored_tunables()
+        stored = dict(self._stored_tunables())
+        for name, val in self.config.gestures.get("experimental", {}).items():
+            stored.setdefault("exp_" + name, 1 if val else 0)
+        stored.setdefault("cleanup_enabled", 1 if self.config.cleanup_enabled else 0)
         legacy_gain = self.config.gestures.get("cursor_gain")
         state = {}
         for key, (default, lo, hi, step, label, group, desc) in self._TUNABLES.items():
@@ -109,7 +118,19 @@ class WhisperQuietApp(rumps.App):
         config_mod.save(self.config)
         if "stream_interval" in clean:
             self.config.stream_interval = clean["stream_interval"]
+        if "cleanup_enabled" in clean:
+            self.config.cleanup_enabled = bool(clean["cleanup_enabled"])
+        exp = {
+            key[4:]: bool(clean.pop(key))
+            for key in list(clean)
+            if key.startswith("exp_")
+        }
+        if exp:
+            self.config.gestures.setdefault("experimental", {}).update(exp)
+            config_mod.save(self.config)
         if self._camera is not None:
+            if exp:
+                self._camera.set_experimental(exp)
             self._camera.apply_tunables(clean)
 
     def _watch_triggers(self) -> None:
@@ -244,6 +265,7 @@ class WhisperQuietApp(rumps.App):
                 on_calibrated=self._save_calibration,
                 stats=self.stats,
                 cursor_gain=self.config.gestures.get("cursor_gain"),
+                experimental=self.config.gestures.get("experimental"),
             )
         self._camera.start()
         self._camera.apply_tunables(self._stored_tunables())
@@ -313,7 +335,8 @@ class WhisperQuietApp(rumps.App):
                 snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
             )
             if partial:
-                self.overlay.update(partial)
+                shown = clean_text(partial) if cfg.cleanup_enabled else partial
+                self.overlay.update(shown)
                 last_partial, last_size = partial, snap.size
             self._recording_wait(cfg.stream_interval)
 
@@ -329,6 +352,11 @@ class WhisperQuietApp(rumps.App):
             final = transcribe.transcribe(
                 audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
             )
+        raw_final = final
+        if final and cfg.cleanup_enabled:
+            final = clean_text(final)
+        if final and cfg.keep_transcripts and raw_final != final:
+            self.transcripts.log("pair", {"raw": raw_final, "clean": final})
         if final:
             inject.type_text(final, cfg.inject_mode)
             self.stats.record("dictation")

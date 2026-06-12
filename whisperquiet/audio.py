@@ -10,6 +10,38 @@ import sounddevice as sd
 SAMPLE_RATE = 16_000  # what whisper expects
 
 
+def trim_trailing_silence(
+    audio: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    threshold: float = 2e-4,
+    keep_s: float = 0.3,
+) -> np.ndarray:
+    """Drop trailing silence so whisper never decodes into dead air.
+
+    Walks back from the end in ~50ms windows computing RMS and cuts everything
+    after the last window whose RMS >= threshold, keeping an extra keep_s of
+    padding (clamped to the array length). All-silent input is returned
+    unchanged so the caller's existing silence guard still applies. Pure
+    function: no state, never returns empty for non-silent input.
+    """
+    if audio.size == 0:
+        return audio
+    window = max(1, int(sample_rate * 0.05))
+    pos = audio.size
+    last_voiced_end = None
+    while pos > 0:
+        start = max(0, pos - window)
+        rms = float(np.sqrt(np.mean(np.square(audio[start:pos], dtype=np.float64))))
+        if rms >= threshold:
+            last_voiced_end = pos
+            break
+        pos = start
+    if last_voiced_end is None:
+        return audio  # all silence: leave it to the caller's silence guard
+    cut = min(audio.size, last_voiced_end + int(sample_rate * keep_s))
+    return audio[:cut]
+
+
 class MicRecorder:
     def __init__(self) -> None:
         self._chunks: list[np.ndarray] = []
