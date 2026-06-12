@@ -45,3 +45,25 @@
 2. **Week 3–4:** Head cursor (relative + One-Euro + deadzone) and wink/mouth gestures with a threshold-tuning panel.
 3. **Then:** Daily dogfood against the success bar; tune until it survives a full workday.
 4. **Then:** Swift/SwiftUI port; RSI/a11y community beta (Talon forums, r/RSI, a11y X); open-source launch.
+
+## Pivot #2 (2026-06-11): voice-first, face-assist
+
+Full facial screen control is re-scoped as a moonshot. Evidence: dictation
+worked day one and compounds (cleanup layer, vocab, LoRA personalization);
+camera control consumed five debug rounds + 16 tuning knobs and still reads
+"finicky". New positioning: **best-in-class private dictation (on-device,
+vs cloud competitors) + three face gestures that really work**, for the
+general-productivity user whose hands stay on the keyboard.
+
+| Tier | Features |
+|---|---|
+| First-class (on by default, in the pitch) | whisper dictation; cheek-puff = pause/resume; winks = L/R click; brow/pucker = scroll |
+| Experimental (config-off, kept for RSI/a11y full-hands-free) | head cursor, jaw drag (conflicts with speaking), nod/shake keys |
+
+Audience: general productivity first; RSI/a11y remains a welcomed user of
+the experimental tier, no longer the design center.
+
+Roadmap reorder: 1) dictation cleanup layer (docs/PLAN-dictation-cleanup.md,
+incl. issue #1 hallucination guards) → 2) WER measurement + personal vocab +
+audio-LoRA flywheel → 3) streaming/latency polish → 4) onboarding + launch.
+Camera feature surface is FROZEN — tuning only, no new gestures.
