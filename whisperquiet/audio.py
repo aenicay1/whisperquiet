@@ -10,6 +10,16 @@ import sounddevice as sd
 SAMPLE_RATE = 16_000  # what whisper expects
 
 
+def peak_normalize(audio, target: float = 0.9):
+    """Whispered speech is low-amplitude; scale peaks toward target so the
+    model sees a healthy signal. No-op on silence."""
+    import numpy as _np
+    peak = float(_np.max(_np.abs(audio))) if audio.size else 0.0
+    if peak < 1e-4:
+        return audio
+    return (audio * (target / peak)).astype(_np.float32)
+
+
 def trim_trailing_silence(
     audio: np.ndarray,
     sample_rate: int = SAMPLE_RATE,

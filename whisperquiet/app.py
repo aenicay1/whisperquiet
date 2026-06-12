@@ -352,11 +352,28 @@ class WhisperQuietApp(rumps.App):
             final = transcribe.transcribe(
                 audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
             )
+        audio_name = None
+        if cfg.keep_audio and audio.size > 8000:
+            try:
+                import wave
+                import numpy as np
+                adir = config_mod.CONFIG_DIR / "audio"
+                adir.mkdir(parents=True, exist_ok=True)
+                audio_name = f"{int(time.time())}.wav"
+                with wave.open(str(adir / audio_name), "wb") as w:
+                    w.setnchannels(1)
+                    w.setsampwidth(2)
+                    w.setframerate(16000)
+                    w.writeframes((audio * 32767).astype(np.int16).tobytes())
+            except Exception:
+                audio_name = None
         raw_final = final
         if final and cfg.cleanup_enabled:
             final = clean_text(final)
-        if final and cfg.keep_transcripts and raw_final != final:
-            self.transcripts.log("pair", {"raw": raw_final, "clean": final})
+        if final and cfg.keep_transcripts and (raw_final != final or audio_name):
+            self.transcripts.log(
+                "pair", {"raw": raw_final, "clean": final, "audio": audio_name}
+            )
         if final:
             inject.type_text(final, cfg.inject_mode)
             self.stats.record("dictation")

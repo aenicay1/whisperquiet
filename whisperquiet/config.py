@@ -27,6 +27,8 @@ class Config:
     cleanup_enabled: bool = True
     # keep raw->cleaned transcript pairs on-device (personalization corpus)
     keep_transcripts: bool = True
+    # save each dictation's audio as WAV on-device (WER benchmarking + LoRA)
+    keep_audio: bool = True
     # Gesture/cursor settings, calibration, tunables, experimental flags
     gestures: dict = field(default_factory=dict)
     # Names/jargon the user dictates often; biases the whisper decoder

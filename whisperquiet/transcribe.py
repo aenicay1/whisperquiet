@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .audio import SAMPLE_RATE, trim_trailing_silence
+from .audio import SAMPLE_RATE, peak_normalize, trim_trailing_silence
 
 MIN_AUDIO_SECONDS = 0.3
 
@@ -19,7 +19,7 @@ def transcribe(
         return ""
     # whisper hallucinates repeated tokens when it decodes into trailing
     # silence (issue #1), so cut the dead air before it reaches the model
-    audio = trim_trailing_silence(audio)
+    audio = peak_normalize(trim_trailing_silence(audio))
     import inspect
 
     import mlx_whisper  # deferred: first import loads mlx
@@ -31,6 +31,7 @@ def transcribe(
     # anti-hallucination decode gates; only pass the ones the installed
     # mlx_whisper accepts (currently all four are available)
     gates = {
+        "temperature": 0.0,
         "compression_ratio_threshold": 2.2,
         "logprob_threshold": -1.0,
         "no_speech_threshold": 0.5,
