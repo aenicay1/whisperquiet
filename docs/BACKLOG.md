@@ -8,6 +8,8 @@ Not in priority order within a section unless noted.
   the mic signal before Whisper sees it: an on-device denoiser (RNNoise /
   DeepFilterNet-class) or spectral noise-gate, ideally calibrated to the
   user's room. Helps the hard cases (cafés, fans, AC). On-device only.
+- ~~Normalized WER scoring (strict vs recognition-only)~~ DONE 2026-06-12 — playground shows both.
+- ~~Time formatting (7.45pm -> 7:45 PM)~~ DONE 2026-06-12 — cleanup format_times.
 - **Live preview ≠ committed text** (user req 2026-06-12) — the streaming
   text in the floating modal often differs from what finally lands in the
   text box, which is disorienting. Make the preview a truer reflection of

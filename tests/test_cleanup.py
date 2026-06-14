@@ -39,6 +39,15 @@ GOLDEN = [
     ("That's the intro. New paragraph. Now the details.", "That's the intro.\n\nNow the details."),
     ("We launched a new line of products.", "We launched a new line of products."),
     ("The newline character is invisible.", "The newline character is invisible."),
+    # time formatting: Whisper writes the separator as a period
+    ("7.45pm", "7:45 PM"),
+    ("9.00pm", "9:00 PM"),
+    ("meet at 10.30 am", "meet at 10:30 AM"),
+    # negative cases: no am/pm marker -> never touched
+    ("$18.00", "$18.00"),
+    ("version 2.45", "version 2.45"),
+    ("the score was 3.14", "the score was 3.14"),
+    ("3.5 hours", "3.5 hours"),
     # whitespace/punctuation normalization
     ("Hello  ,  world  .", "Hello, world."),
     # everything at once
@@ -114,6 +123,10 @@ def test_resolve_corrections_off():
 def test_spoken_commands_off():
     raw = "First point, new line, second point."
     assert clean(raw, CleanupConfig(spoken_commands=False)) == raw
+
+
+def test_format_times_off():
+    assert clean("7.45pm", CleanupConfig(format_times=False)) == "7.45pm"
 
 
 @pytest.mark.parametrize("raw", [raw for raw, _ in GOLDEN])

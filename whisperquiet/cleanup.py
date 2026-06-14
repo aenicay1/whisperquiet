@@ -19,6 +19,17 @@ Known heuristic limits, accepted on purpose:
 - Spoken commands fire only at a clause start (preceded by punctuation or the
   start of text), so "a new line of products" is safe, but an unpunctuated
   "first item new line second item" is missed.
+
+Formatting stage (after the rules, before final whitespace normalization)
+handles only clearly-mechanical, unambiguous fixes. Right now that is just time
+formatting: Whisper writes times with a decimal point ("7.45pm"), and a period
+is not a time separator, so we rewrite it to "7:45 PM". The fix fires only when
+minutes are exactly two digits AND an am/pm marker is present, so money
+("$18.00"), versions ("version 2.45"), and section numbers ("3.1") are never
+touched. Currency/date/number reformatting is intentionally OUT OF SCOPE here:
+spelled-vs-digit numbers, hyphenation, and oxford commas are preference, not
+errors, and reformatting them would impose opinionated style. See
+docs/BACKLOG.md for those preference-laden items.
 """
 
 from __future__ import annotations
@@ -35,6 +46,7 @@ class CleanupConfig:
     collapse_repeats: bool = True  # "the the the" -> "the"; kills hallucination loops
     resolve_corrections: bool = True
     spoken_commands: bool = True
+    format_times: bool = True  # "7.45pm" -> "7:45 PM" (period is not a time separator)
 
 
 AGGRESSIVE_FILLERS = ("like", "you know", "i mean", "sort of", "kind of")
@@ -60,6 +72,17 @@ _CORRECTION_CUES = [
     re.compile(r"(?:,\s*)?\bactually,?\s+make\s+that\s+", re.IGNORECASE),  # actually make that Y
 ]
 
+# Times like "7.45pm" / "10.30 am" / "9.00 p.m." Whisper writes the separator
+# as a period; rewrite to "7:45 PM". Fires only with exactly 2 minute digits AND
+# an am/pm marker, so "$18.00", "version 2.45", and "section 3.1" never match.
+# A word boundary on the left keeps us off "$18.00" (digit precedes nothing
+# meaningful here) — the marker requirement is what actually protects money and
+# versions, since neither carries am/pm.
+_TIME_RE = re.compile(
+    r"(?<![\w.])(?P<h>\d{1,2})\.(?P<m>\d{2})\s*(?P<mer>[ap])\.?m\.?\b",
+    re.IGNORECASE,
+)
+
 # Commands must start a clause: preceded by punctuation, a newline, or the
 # start of text. An optional trailing comma/period belongs to the command.
 _COMMAND_RE = re.compile(
@@ -83,6 +106,8 @@ def clean(text: str, config: CleanupConfig | None = None) -> str:
         text = _collapse_repeats(text)
     if config.spoken_commands:
         text = _spoken_commands(text)
+    if config.format_times:
+        text = _format_times(text)
     return _normalize(text)
 
 
@@ -216,6 +241,22 @@ def _collapse_ngram_runs(tokens: list[str], n: int) -> list[str]:
 
 def _spoken_commands(text: str) -> str:
     return _COMMAND_RE.sub(lambda m: "\n\n" if m.group("para") else "\n", text)
+
+
+# --- formatting -------------------------------------------------------------
+
+
+def _format_times(text: str) -> str:
+    """Rewrite decimal-separated clock times ("7.45pm") to "7:45 PM".
+
+    Mechanical and unambiguous: a period is never a valid time separator, and we
+    only touch spans that carry an am/pm marker, so currency, version, and
+    section numbers are left alone.
+    """
+    def repl(m: re.Match) -> str:
+        return f"{m.group('h')}:{m.group('m')} {m.group('mer').upper()}M"
+
+    return _TIME_RE.sub(repl, text)
 
 
 # --- normalization ----------------------------------------------------------

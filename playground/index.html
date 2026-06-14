@@ -1241,6 +1241,78 @@ function normalizeWords(s) {
   return out;
 }
 
+/* ---- normalized-WER helper (second scoring pass only) ----------------
+   Goal: ignore punctuation & number-format differences so recognition
+   quality shows through. Self-contained; does NOT touch normalizeWords()
+   or the strict scoring path. Operates on a raw string and returns a
+   token array suitable for alignWER(). */
+var NWQ_ONES = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7,
+  eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14,
+  fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19 };
+var NWQ_TENS = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60,
+  seventy:70, eighty:80, ninety:90 };
+var NWQ_ORDINAL_WORD = { first:1, second:2, third:3, fourth:4, fifth:5,
+  sixth:6, seventh:7, eighth:8, ninth:9, tenth:10, eleventh:11, twelfth:12,
+  thirteenth:13, fourteenth:14, fifteenth:15, sixteenth:16, seventeenth:17,
+  eighteenth:18, nineteenth:19, twentieth:20, thirtieth:30 };
+
+function nwqOrdinalToDigit(t) {
+  // "3rd" -> "3", "15th" -> "15"; spelled "third" -> "3"; "twenty-first" handled via spelled tens below
+  var m = /^([0-9]+)(st|nd|rd|th)$/.exec(t);
+  if (m) { var v = parseInt(m[1], 10); if (v >= 1 && v <= 31) return String(v); }
+  if (Object.prototype.hasOwnProperty.call(NWQ_ORDINAL_WORD, t)) {
+    var v2 = NWQ_ORDINAL_WORD[t]; if (v2 >= 1 && v2 <= 31) return String(v2);
+  }
+  return null;
+}
+
+/* fold a stream of spelled-number tokens into digit tokens both directions:
+   "nine" -> "9", "eighteen thousand" -> "18000", "twelve" -> "12".
+   Non-number tokens pass through unchanged. */
+function nwqFoldNumbers(toks) {
+  var out = [];
+  var i = 0;
+  while (i < toks.length) {
+    var t = toks[i];
+    // ordinal first (word or digit form) -> bare digit
+    var ord = nwqOrdinalToDigit(t);
+    if (ord != null) { out.push(ord); i++; continue; }
+
+    var isOne = Object.prototype.hasOwnProperty.call(NWQ_ONES, t);
+    var isTen = Object.prototype.hasOwnProperty.call(NWQ_TENS, t);
+    if (!isOne && !isTen && t !== 'hundred' && t !== 'thousand') {
+      out.push(t); i++; continue;
+    }
+    // consume a run of spelled-number words and evaluate it
+    var total = 0, current = 0, consumed = 0, seen = false;
+    while (i < toks.length) {
+      var w = toks[i];
+      if (Object.prototype.hasOwnProperty.call(NWQ_ONES, w)) { current += NWQ_ONES[w]; }
+      else if (Object.prototype.hasOwnProperty.call(NWQ_TENS, w)) { current += NWQ_TENS[w]; }
+      else if (w === 'hundred') { current = (current || 1) * 100; }
+      else if (w === 'thousand') { total += (current || 1) * 1000; current = 0; }
+      else break;
+      seen = true; consumed++; i++;
+    }
+    if (seen) out.push(String(total + current));
+    else { out.push(t); i++; }
+  }
+  return out;
+}
+
+function normalizeTokens(s) {
+  // lowercase; strip commas inside numbers; hyphens -> spaces; drop other
+  // punctuation; collapse whitespace; then fold spelled<->digit numbers.
+  var str = String(s).toLowerCase();
+  str = str.replace(/(\d),(?=\d{3}\b)/g, '$1');     // 18,000 -> 18000 ; 1,250 -> 1250
+  str = str.replace(/(\d)[.:](\d)/g, '$1$2');        // 7:45 / 7.45 -> 745 (time/decimal separators)
+  str = str.replace(/(\d)(am|pm)\b/g, '$1 $2');      // 7.45pm -> 745 pm (split clock suffix off digits)
+  str = str.replace(/-/g, ' ');                      // double-check -> double check
+  str = str.replace(/[^a-z0-9\s]/g, ' ');            // strip remaining punctuation (.,:'@ etc.)
+  var raw = str.split(/\s+/).filter(function (x) { return x.length > 0; });
+  return nwqFoldNumbers(raw);
+}
+
 function alignWER(ref, hyp) {
   var n = ref.length, m = hyp.length, i, j;
   var d = [];
@@ -1274,6 +1346,7 @@ function alignWER(ref, hyp) {
 function startDictation() {
   var ROUNDS = 10, TAIL_RATIO = 1.5;
   var round = 0, wers = [], errsTotal = 0, wordsTotal = 0, tailFlags = 0, done = false;
+  var normWers = [], normErrsTotal = 0, normWordsTotal = 0;   // normalized second pass (report card only)
   var scoredThisRound = false, started = false;
   var entries = null, order = null, currentRef = '', setName = 'standard';
   var refEl = null, input = null, diffEl = null, werEl = null, trendEl = null;
@@ -1400,6 +1473,11 @@ function startDictation() {
     wers.push(res.wer);
     errsTotal += res.errs;
     wordsTotal += res.refLen;
+    // second pass: normalized (ignore punctuation & number formatting) — report card only
+    var nRes = alignWER(normalizeTokens(currentRef), normalizeTokens(input.value));
+    normWers.push(nRes.wer);
+    normErrsTotal += nRes.errs;
+    normWordsTotal += nRes.refLen;
     renderDiff(res.ops);
     werEl.innerHTML = 'WER <span style="color:' + (res.wer <= 0.05 ? 'var(--green)' : res.wer <= 0.15 ? 'var(--yellow)' : 'var(--red)') + '">' +
       (res.wer * 100).toFixed(1) + '%</span> · ' + res.errs + ' err / ' + res.refLen + ' words';
@@ -1431,6 +1509,8 @@ function startDictation() {
       rounds: wers.length,
       avg_wer: avg(wers) || 0,
       micro_wer: wordsTotal ? errsTotal / wordsTotal : 0,
+      normalizedAvgWer: avg(normWers) || 0,
+      normalizedMicroWer: normWordsTotal ? normErrsTotal / normWordsTotal : 0,
       best_wer: wers.length ? Math.min.apply(null, wers) : null,
       worst_wer: wers.length ? Math.max.apply(null, wers) : null,
       total_errors: errsTotal,
@@ -1444,10 +1524,13 @@ function startDictation() {
       ['sentence set', setName.toUpperCase()],
       ['avg WER (per sentence)', (metrics.avg_wer * 100).toFixed(1) + '%'],
       ['micro WER (all words pooled)', (metrics.micro_wer * 100).toFixed(1) + '%'],
+      ['normalized avg WER', (metrics.normalizedAvgWer * 100).toFixed(1) + '%'],
+      ['normalized micro WER', (metrics.normalizedMicroWer * 100).toFixed(1) + '%'],
       ['best / worst sentence', (metrics.best_wer * 100).toFixed(0) + '% / ' + (metrics.worst_wer * 100).toFixed(0) + '%'],
       ['total errors / words', errsTotal + ' / ' + wordsTotal],
       ['hallucination-tail flags', String(tailFlags)]
-    ], 'dictation');
+    ], 'dictation',
+      '<div class="hint" style="margin-top:10px">(normalized = ignoring punctuation &amp; number formatting)</div>');
   }
 
   return {
