@@ -4,6 +4,15 @@ Running list of future work. Newest user requests at the top of each section.
 Not in priority order within a section unless noted.
 
 ## Dictation quality
+- **[HIGH] Long-form dictation drops/garbles content** (user req 2026-06-12) —
+  a 45s continuous "yap" lost sentences 2-6 entirely; one-shot transcription
+  of long buffers fails, worsened by condition_on_previous_text=False (set to
+  kill hallucination loops, but it also breaks long-form window coherence).
+  Core use case = long context-rich brain-dumps to LLMs, so this is a
+  priority. FIX: VAD/silence-based chunking — split the buffer at natural
+  pauses into short segments, transcribe each (Whisper's sweet spot), stitch.
+  Each chunk short enough to avoid the drop; also enables a cleaner streaming
+  preview. Per-chunk hallucination guard stays.
 - **Background noise reduction / denoising** (user req 2026-06-12) — clean
   the mic signal before Whisper sees it: an on-device denoiser (RNNoise /
   DeepFilterNet-class) or spectral noise-gate, ideally calibrated to the
