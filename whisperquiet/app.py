@@ -353,12 +353,13 @@ class WhisperQuietApp(rumps.App):
         import numpy as np
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)
-        if audio.size == last_size and last_partial:
-            final = last_partial  # nothing new since the last partial
-        elif rms < 2e-4:
+        if rms < 2e-4:
             final = last_partial  # near-silence: don't let whisper hallucinate
         else:
-            final = transcribe.transcribe(
+            # transcribe_long chunks at pauses so long "yap" dictations don't
+            # drop their middle; single-chunk audio falls through to plain
+            # transcribe(), so short utterances are unchanged.
+            final = transcribe.transcribe_long(
                 audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
             )
         audio_name = None
@@ -379,6 +380,9 @@ class WhisperQuietApp(rumps.App):
         raw_final = final
         if final and cfg.cleanup_enabled:
             final = clean_text(final)
+        if final and cfg.rescore_enabled:
+            from .rescore import RescoreConfig, rescore
+            final = rescore(final, RescoreConfig(enabled=True))
         if final and cfg.keep_transcripts and (raw_final != final or audio_name):
             self.transcripts.log(
                 "pair", {"raw": raw_final, "clean": final, "audio": audio_name}

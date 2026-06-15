@@ -4,7 +4,8 @@ Running list of future work. Newest user requests at the top of each section.
 Not in priority order within a section unless noted.
 
 ## Dictation quality
-- **[HIGH] Long-form dictation drops/garbles content** (user req 2026-06-12) —
+- ~~[HIGH] Long-form dictation garbling~~ DONE 2026-06-14 — VAD chunking (transcribe_long).
+- (orig note, user req 2026-06-12) —
   a 45s continuous "yap" lost sentences 2-6 entirely; one-shot transcription
   of long buffers fails, worsened by condition_on_previous_text=False (set to
   kill hallucination loops, but it also breaks long-form window coherence).
@@ -25,6 +26,7 @@ Not in priority order within a section unless noted.
   the final: e.g. only show stabilized words, apply the cleanup layer to the
   preview, or hold the preview until confidence settles. Reduce the "I saw X,
   it pasted Y" whiplash.
+- ~~LLM rescoring (fix implausible errors)~~ SHIPPED 2026-06-14, off by default (rescore_enabled); needs mlx_lm + real-latency cancellation before default-on.
 - LoRA fine-tune on the user's own voice/whisper (the structural WER win;
   corpus already accumulating in audio/ + transcripts.jsonl).
 - Auto-vocabulary harvesting — propose vocab entries from observed edits

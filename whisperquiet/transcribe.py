@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .audio import SAMPLE_RATE, peak_normalize, trim_trailing_silence
+from .audio import SAMPLE_RATE, peak_normalize, split_on_silence, trim_trailing_silence
 
 MIN_AUDIO_SECONDS = 0.3
 
@@ -49,6 +49,34 @@ def transcribe(
         **extra,
     )
     return result["text"].strip()
+
+
+def transcribe_long(
+    audio: np.ndarray,
+    model_repo: str,
+    language: str = "en",
+    vocabulary: list[str] | None = None,
+) -> str:
+    """Transcribe a long recording by splitting it on silence first.
+
+    A single 45s+ buffer makes whisper drop whole middle sentences (issue #2),
+    so split_on_silence cuts the audio at silent gaps into short chunks and we
+    decode each through the existing transcribe() — reusing its trim/normalize,
+    decode gates, and vocab biasing — then join the non-empty results with a
+    space. With a single chunk this is exactly transcribe().
+
+    condition_on_previous_text stays False per chunk: each chunk is short, so the
+    long-form coherence it would otherwise buy us never comes into play, and on
+    low-energy speech it tends to compound hallucinations.
+    """
+    chunks = split_on_silence(audio)
+    if len(chunks) <= 1:
+        return transcribe(audio, model_repo, language=language, vocabulary=vocabulary)
+    parts = [
+        transcribe(chunk, model_repo, language=language, vocabulary=vocabulary)
+        for chunk in chunks
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def warm_up(model_repo: str) -> None:

@@ -25,6 +25,9 @@ class Config:
     inject_mode: str = "keystrokes"
     # rules-based filler/repeat/correction cleanup on dictation output
     cleanup_enabled: bool = True
+    # optional on-device LLM rescoring stage (fixes implausible recognition
+    # errors); OFF by default — opt-in, requires the optional mlx_lm dependency
+    rescore_enabled: bool = False
     # keep raw->cleaned transcript pairs on-device (personalization corpus)
     keep_transcripts: bool = True
     # save each dictation's audio as WAV on-device (WER benchmarking + LoRA)
