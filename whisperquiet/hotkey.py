@@ -61,11 +61,14 @@ class PushToTalk:
         AppHelper.callAfter(self._install_main)
 
     def _install_main(self) -> None:
+        # NB: do NOT listen to kCGEventMouseMoved — it fires hundreds of
+        # times/sec, makes this callback hot, and macOS then disables the
+        # tap for timeout (the "hotkey randomly stops working" bug). Clicks
+        # + scroll are enough to detect physical mouse use.
         mask = (
             Quartz.CGEventMaskBit(Quartz.kCGEventFlagsChanged)
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
             | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
-            | Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved)
             | Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown)
             | Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown)
             | Quartz.CGEventMaskBit(Quartz.kCGEventScrollWheel)
@@ -91,16 +94,39 @@ class PushToTalk:
         )
         Quartz.CGEventTapEnable(self._tap, True)
         print("PTT tap installed (keycode", self._keycode, ")", flush=True)
+        import threading as _t
+        _t.Thread(target=self._watchdog, daemon=True).start()
+
+    def _watchdog(self) -> None:
+        """Re-arm the tap if macOS ever disables it (timeout / sleep / fast
+        user switch). This is why the hotkey used to silently die."""
+        import time as _time
+        while self._tap is not None:
+            _time.sleep(2.0)
+            try:
+                if not Quartz.CGEventTapIsEnabled(self._tap):
+                    Quartz.CGEventTapEnable(self._tap, True)
+                    print("PTT tap was disabled — re-enabled", flush=True)
+            except Exception:
+                pass
 
     _MOUSE_TYPES = (
-        Quartz.kCGEventMouseMoved,
         Quartz.kCGEventLeftMouseDown,
         Quartz.kCGEventRightMouseDown,
         Quartz.kCGEventScrollWheel,
     )
+    _TAP_DISABLED = (
+        Quartz.kCGEventTapDisabledByTimeout,
+        Quartz.kCGEventTapDisabledByUserInput,
+    )
 
     def _handle(self, proxy, etype, event, refcon):
         try:
+            if etype in self._TAP_DISABLED:
+                # macOS disabled us; turn the tap back on immediately
+                Quartz.CGEventTapEnable(self._tap, True)
+                print("PTT tap re-enabled (was disabled in-stream)", flush=True)
+                return event
             if (
                 Quartz.CGEventGetIntegerValueField(
                     event, Quartz.kCGEventSourceUserData
