@@ -14,6 +14,7 @@ over polish.
 from __future__ import annotations
 
 import AppKit
+import objc
 from PyObjCTools import AppHelper
 
 _WIDTH, _HEIGHT, _MARGIN_BOTTOM = 520, 96, 120
@@ -282,16 +283,105 @@ class Overlay:
         _fade_out_panel(panel, done)
 
 
+# -- frosted-glass spectrum view ---------------------------------------------
+
+# single teal accent — liquid glass, NOT a rainbow. Encode level by HEIGHT and
+# ALPHA only; never shift hue per bar.
+_SPECTRUM_RGB = (0.25, 0.87, 0.82)
+_SPECTRUM_ALPHA_REST = 0.35
+_SPECTRUM_ALPHA_PEAK = 0.95
+_SPECTRUM_DECAY = 0.8  # prev*0.8 floor → bars drift down gracefully, never strobe
+
+
+class _SpectrumView(AppKit.NSView):
+    """Thin vertical bars mirrored around a horizontal centre line, drawn in a
+    single translucent teal so it reads as liquid glass on the frosted panel.
+
+    Heights ease toward each target but fall slowly (``max(target, prev*decay)``)
+    so a pause drifts down instead of strobing. Every draw is wrapped so a
+    drawing failure degrades to an empty (harmless) view rather than crashing.
+    """
+
+    def initWithFrame_(self, frame):
+        self = objc.super(_SpectrumView, self).initWithFrame_(frame)
+        if self is None:
+            return None
+        self._heights = []  # smoothed 0..1 per bar
+        return self
+
+    def setBands_(self, bands) -> None:
+        try:
+            target = [max(0.0, min(1.0, float(b))) for b in (bands or [])]
+        except Exception:
+            target = []
+        if not target:
+            self._heights = []
+            self.setNeedsDisplay_(True)
+            return
+        prev = self._heights
+        if len(prev) != len(target):
+            prev = [0.0] * len(target)
+        self._heights = [
+            max(t, p * _SPECTRUM_DECAY) for t, p in zip(target, prev)
+        ]
+        self.setNeedsDisplay_(True)
+
+    def isFlipped(self) -> bool:
+        return False
+
+    def drawRect_(self, rect) -> None:
+        try:
+            heights = list(self._heights)
+            if not heights:
+                return
+            bounds = self.bounds()
+            w = float(bounds.size.width)
+            h = float(bounds.size.height)
+            n = len(heights)
+            cx = h / 2.0
+            slot = w / n
+            bar_w = max(1.5, slot * 0.55)
+            r, g, b = _SPECTRUM_RGB
+            for i, level in enumerate(heights):
+                level = max(0.0, min(1.0, level))
+                # full height of the mirrored bar; clamp to at least a faint stub
+                bar_h = max(2.0, level * (h - 2.0))
+                alpha = _SPECTRUM_ALPHA_REST + level * (
+                    _SPECTRUM_ALPHA_PEAK - _SPECTRUM_ALPHA_REST
+                )
+                x = i * slot + (slot - bar_w) / 2.0
+                y = cx - bar_h / 2.0
+                radius = min(bar_w / 2.0, 2.0)
+                AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                    r, g, b, alpha
+                ).set()
+                path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                    AppKit.NSMakeRect(x, y, bar_w, bar_h), radius, radius
+                )
+                path.fill()
+        except Exception:
+            # never crash the run over an indicator repaint
+            return
+
+
 class NotchIndicator:
     """Small 'listening' pill top-center near the notch with a live mic level,
-    so you can see the app is hearing you before any text streams in."""
+    so you can see the app is hearing you before any text streams in.
 
-    _W, _H = 180, 26
-    _BAR_X, _BAR_MAX = 100, 68
+    The mic level is shown as a frosted-glass audio spectrum (``set_spectrum``);
+    ``set_level`` remains as a single-bar fallback if the spectrum is never fed.
+    """
+
+    _N_BANDS = 24
+    _W, _H = 240, 26
+    # spectrum / fallback-bar region: right of the "listening" label
+    _SPEC_X, _SPEC_W = 100, 128
+    _BAR_X, _BAR_MAX = 100, 128
 
     def __init__(self) -> None:
         self._panel: AppKit.NSPanel | None = None
         self._bar: AppKit.NSView | None = None
+        self._spectrum: _SpectrumView | None = None
         self._base_frame = None
         self._gen = 0
 
@@ -302,6 +392,9 @@ class NotchIndicator:
 
     def set_level(self, level: float) -> None:
         AppHelper.callAfter(self._level_main, float(level))
+
+    def set_spectrum(self, bands: list[float]) -> None:
+        AppHelper.callAfter(self._spectrum_main, list(bands or []))
 
     def hide(self) -> None:
         AppHelper.callAfter(self._hide_main)
@@ -338,23 +431,60 @@ class NotchIndicator:
         bar.setWantsLayer_(True)
         bar.layer().setBackgroundColor_(AppKit.NSColor.systemGreenColor().CGColor())
         bar.layer().setCornerRadius_(3.0)
+        bar.setHidden_(True)  # fallback only; revealed by set_level()
         content.addSubview_(bar)
 
-        self._panel, self._bar, self._base_frame = panel, bar, rect
+        spectrum = None
+        try:
+            spectrum = _SpectrumView.alloc().initWithFrame_(
+                AppKit.NSMakeRect(self._SPEC_X, 2, self._SPEC_W, self._H - 4)
+            )
+            content.addSubview_(spectrum)
+        except Exception:
+            spectrum = None
+
+        self._panel, self._bar, self._spectrum = panel, bar, spectrum
+        self._base_frame = rect
 
     def _show_main(self) -> None:
         self._ensure_panel()
         self._gen += 1
-        self._level_main(0.0)
+        if self._spectrum is not None:
+            self._spectrum_main([0.0] * self._N_BANDS)
+        else:
+            self._level_main(0.0)
         # fade only — no rise; the pill hugs the top edge of the screen
         _fade_in_panel(self._panel, self._base_frame, rise=0.0)
 
     def _level_main(self, level: float) -> None:
-        if self._bar is not None:
-            width = 4 + max(0.0, min(1.0, level)) * (self._BAR_MAX - 4)
-            self._bar.setFrame_(
-                AppKit.NSMakeRect(self._BAR_X, self._H / 2 - 3, width, 6)
-            )
+        # single-bar fallback: only used when set_spectrum is never called
+        if self._bar is None:
+            return
+        try:
+            self._bar.setHidden_(False)
+        except Exception:
+            pass
+        width = 4 + max(0.0, min(1.0, level)) * (self._BAR_MAX - 4)
+        self._bar.setFrame_(
+            AppKit.NSMakeRect(self._BAR_X, self._H / 2 - 3, width, 6)
+        )
+
+    def _spectrum_main(self, bands: list[float]) -> None:
+        if self._spectrum is None:
+            # no custom view available — fall back to the single bar using the
+            # loudest band so the indicator still moves
+            try:
+                peak = max(bands) if bands else 0.0
+            except Exception:
+                peak = 0.0
+            self._level_main(peak)
+            return
+        try:
+            if self._bar is not None:
+                self._bar.setHidden_(True)
+            self._spectrum.setBands_(bands)
+        except Exception:
+            pass
 
     def _hide_main(self) -> None:
         if self._panel is None:

@@ -350,9 +350,14 @@ class WhisperQuietApp(rumps.App):
             self._on_ptt_press()
 
     def _level_loop(self) -> None:
+        from .audio import spectrum_bands
+
         while self._recording.is_set():
-            self.indicator.set_level(self.recorder.level())
-            time.sleep(0.08)
+            try:
+                self.indicator.set_spectrum(spectrum_bands(self.recorder.recent()))
+            except Exception:  # never let the meter break dictation
+                self.indicator.set_level(self.recorder.level())  # fallback
+            time.sleep(0.05)  # ~20Hz for smooth bars
 
     # -- streaming worker ----------------------------------------------------
 

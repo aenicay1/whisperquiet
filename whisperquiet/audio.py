@@ -148,6 +148,58 @@ def _hard_split(span: np.ndarray, window: int, max_chunk: int) -> list[np.ndarra
     )
 
 
+def spectrum_bands(
+    samples: np.ndarray,
+    n_bands: int = 24,
+    sample_rate: int = SAMPLE_RATE,
+) -> list[float]:
+    """Log-spaced speech-band magnitude spectrum, each band roughly 0..1.
+
+    Hann-windows ``samples``, takes the real FFT magnitude, and bins it into
+    ``n_bands`` log-spaced frequency bands across ~80Hz–8kHz (the speech range).
+    Per-band magnitude is normalised by a fixed reference and clipped so quiet
+    speech still shows visible motion (scaled in the spirit of ``level()``'s
+    ``/0.04`` feel). Empty / all-silence / too-short input returns ``[0.0] *
+    n_bands``. Pure and deterministic: no state.
+    """
+    n_bands = max(1, int(n_bands))
+    flat = [0.0] * n_bands
+    if samples is None:
+        return flat
+    samples = np.asarray(samples, dtype=np.float64).ravel()
+    n = samples.size
+    if n < 16 or not np.any(samples):
+        return flat
+
+    window = np.hanning(n)
+    windowed = samples * window
+    spectrum = np.abs(np.fft.rfft(windowed))
+    if spectrum.size < 2:
+        return flat
+    # normalise FFT magnitude back to a per-sample amplitude scale so the
+    # reference below is independent of window length
+    spectrum = spectrum / (np.sum(window) + 1e-12) * 2.0
+    freqs = np.fft.rfftfreq(n, d=1.0 / sample_rate)
+
+    lo, hi = 80.0, min(8000.0, sample_rate / 2.0)
+    if hi <= lo:
+        return flat
+    edges = np.logspace(np.log10(lo), np.log10(hi), n_bands + 1)
+
+    ref = 0.04  # same "quiet speech is visible" feel as level()'s /0.04
+    out: list[float] = []
+    for i in range(n_bands):
+        mask = (freqs >= edges[i]) & (freqs < edges[i + 1])
+        if i == n_bands - 1:
+            mask = mask | (freqs == edges[i + 1])
+        if not mask.any():
+            out.append(0.0)
+            continue
+        mag = float(np.sqrt(np.mean(np.square(spectrum[mask]))))
+        out.append(float(min(1.0, mag / ref)))
+    return out
+
+
 class MicRecorder:
     def __init__(self) -> None:
         self._chunks: list[np.ndarray] = []
@@ -230,6 +282,29 @@ class MicRecorder:
         samples = np.concatenate(tail[::-1])[-window:]
         rms = float(np.sqrt(np.mean(np.square(samples))))
         return min(1.0, rms / 0.04)
+
+    def recent(self, seconds: float = 0.05) -> np.ndarray:
+        """The last ``seconds`` of mono float32 audio from the tail.
+
+        Same cheap tail-walk as ``level()`` (no full concat); intended to feed
+        ``spectrum_bands`` for the live indicator. Returns fewer samples than
+        requested if the buffer is shorter, or an empty array if nothing has
+        been captured yet. Not resampled — at the native device rate if the mic
+        refused 16kHz; pass that rate to ``spectrum_bands`` if you need exact
+        frequency bins.
+        """
+        window = max(1, int(SAMPLE_RATE * max(0.0, seconds)))
+        with self._lock:
+            tail: list[np.ndarray] = []
+            total = 0
+            for chunk in reversed(self._chunks):
+                tail.append(chunk[:, 0])
+                total += chunk.shape[0]
+                if total >= window:
+                    break
+        if not tail:
+            return np.zeros(0, dtype=np.float32)
+        return np.concatenate(tail[::-1])[-window:]
 
     def stop(self) -> np.ndarray:
         if self._stream is not None:
