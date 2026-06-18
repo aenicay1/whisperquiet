@@ -46,6 +46,10 @@ class WhisperQuietApp(rumps.App):
         self.indicator = NotchIndicator()
         self._recording = threading.Event()
         self._worker: threading.Thread | None = None
+        # serialize every mlx_whisper decode: the keep-warm thread must never
+        # run a decode concurrently with a real dictation decode (shared model
+        # arrays / default mlx stream are not safe under concurrent eval).
+        self._tx_lock = threading.Lock()
 
         self.ptt = PushToTalk(
             self.config.ptt_key,
@@ -192,6 +196,27 @@ class WhisperQuietApp(rumps.App):
         transcribe.warm_up(self.config.model_repo)
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
+        # keep the model resident: a tiny periodic decode every ~90s so the
+        # first real dictation after idle isn't cold (mlx caches the model;
+        # this keeps that cache warm without meaningful battery cost).
+        threading.Thread(target=self._keep_warm, daemon=True).start()
+
+    def _keep_warm(self) -> None:
+        import numpy as np
+        while True:
+            time.sleep(90)
+            # hold the decode lock so we can't overlap a dictation; re-check
+            # _recording UNDER the lock to close the check-then-act race (a
+            # press could land between the check and the decode otherwise).
+            with self._tx_lock:
+                if self._recording.is_set():
+                    continue
+                try:
+                    transcribe.transcribe(
+                        np.zeros(1600, dtype=np.float32), self.config.model_repo
+                    )
+                except Exception:
+                    pass
 
     # -- dogfood feedback (called from the event tap, main thread) ----------
 
@@ -334,34 +359,58 @@ class WhisperQuietApp(rumps.App):
 
     def _stream_loop(self) -> None:
         cfg = self.config
-        # Re-transcribe the growing buffer while the key is held. Naive but
-        # fine for week 1; incremental decoding is a later optimization.
-        last_partial, last_size = "", -1
+        import numpy as np
+        from .incremental import IncrementalTranscriber
+
+        # Incremental: each silence-bounded segment is transcribed ONCE and
+        # locked, so only the live tail re-runs — constant release latency and
+        # the preview equals the final. transcribe_fn binds model+vocab.
+        def _tx(chunk):
+            with self._tx_lock:  # never overlap the keep-warm decode
+                return transcribe.transcribe(
+                    chunk, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                )
+
+        inc = IncrementalTranscriber(_tx)
+        last_partial = ""
+        use_incremental = True
         while self._recording.is_set():
             snap = self.recorder.snapshot()
-            partial = transcribe.transcribe(
-                snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
-            )
+            try:
+                partial = inc.update(snap)
+            except Exception as exc:  # fall back to whole-buffer, never break
+                print("incremental update failed, falling back:", exc, flush=True)
+                use_incremental = False
+                with self._tx_lock:
+                    partial = transcribe.transcribe(
+                        snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                    )
             if partial:
                 shown = clean_text(partial) if cfg.cleanup_enabled else partial
                 self.overlay.update(shown)
-                last_partial, last_size = partial, snap.size
+                last_partial = partial
             self._recording_wait(cfg.stream_interval)
 
         audio = self.recorder.stop()
         self.status_item.title = "Status: finishing…"
-        import numpy as np
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)
         if rms < 2e-4:
             final = last_partial  # near-silence: don't let whisper hallucinate
+        elif use_incremental:
+            try:
+                final = inc.finalize(audio)  # only the unfinalized tail re-runs
+            except Exception as exc:
+                print("incremental finalize failed, falling back:", exc, flush=True)
+                with self._tx_lock:
+                    final = transcribe.transcribe_long(
+                        audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                    )
         else:
-            # transcribe_long chunks at pauses so long "yap" dictations don't
-            # drop their middle; single-chunk audio falls through to plain
-            # transcribe(), so short utterances are unchanged.
-            final = transcribe.transcribe_long(
-                audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
-            )
+            with self._tx_lock:
+                final = transcribe.transcribe_long(
+                    audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                )
         audio_name = None
         if cfg.keep_audio and audio.size > 8000:
             try:
@@ -394,6 +443,17 @@ class WhisperQuietApp(rumps.App):
             threading.Timer(1.5, self.overlay.hide).start()
         if final:
             inject.type_text(final, cfg.inject_mode)
+            # commit confirmation: brief ✓ so you know it landed. Guard the
+            # delayed hide so it can't tear down the NEXT dictation's overlay
+            # if a new press lands within the 0.8s window.
+            self.overlay.show()
+            self.overlay.update(f"✓ {len(final.split())} words")
+
+            def _hide_confirmation() -> None:
+                if not self._recording.is_set():
+                    self.overlay.hide()
+
+            threading.Timer(0.8, _hide_confirmation).start()
             self.stats.record("dictation")
             self.stats.record("words", len(final.split()))
             self._last_commit_t = time.monotonic()

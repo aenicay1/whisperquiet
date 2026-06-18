@@ -20,7 +20,8 @@ Not in priority order within a section unless noted.
   user's room. Helps the hard cases (cafés, fans, AC). On-device only.
 - ~~Normalized WER scoring (strict vs recognition-only)~~ DONE 2026-06-12 — playground shows both.
 - ~~Time formatting (7.45pm -> 7:45 PM)~~ DONE 2026-06-12 — cleanup format_times.
-- **Live preview ≠ committed text** (user req 2026-06-12) — the streaming
+- ~~Live preview ≠ committed text~~ DONE 2026-06-14 — incremental transcription makes the preview the source of truth (each segment locked once).
+- **(was) Live preview ≠ committed text** — the streaming
   text in the floating modal often differs from what finally lands in the
   text box, which is disorienting. Make the preview a truer reflection of
   the final: e.g. only show stabilized words, apply the cleanup layer to the
