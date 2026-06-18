@@ -4,6 +4,26 @@ Running list of future work. Newest user requests at the top of each section.
 Not in priority order within a section unless noted.
 
 ## Dictation quality
+- **Phase 0 shipped 2026-06-18** — accuracy-gap groundwork (build the levers +
+  the ruler, enable after data):
+  - WER baseline is now tracked in `results/baseline.json` (was only in the
+    fba0710 commit message: 16.3% normalized WER on real recordings, ~11pts
+    over the 5% bar). Regenerate reproducibly with `bench_wer.py --json
+    results/baseline.json --condition quiet|cafe|whisper`. **TODO (needs user):**
+    record fresh quiet + café + whispered full reads of the ref sheet.
+  - Speech-presence gate `whisperquiet/vad.py` wired as a default-OFF commit
+    gate (`config.vad_gate_enabled`). Built-in detector is conservative — it
+    rejects only silence and steady tonal noise, never low-energy whisper.
+    **Upgrade path:** swap in a Silero VAD ONNX detector (onnxruntime, no torch)
+    behind the same `is_speech` seam, then A/B on breath/silence + whisper
+    fixtures before turning it on by default.
+  - Commit-latency instrumentation: `stats.jsonl` now logs `commit_latency_ms`
+    (release→inject) + `transcribe_ms`; `report.py` shows p50/p95 vs the <1s
+    DESIGN target. **TODO:** dogfood to populate real numbers.
+  - Denoiser A/B harness `scripts/bench_denoise.py` + `whisperquiet/denoise.py`
+    (optional `[denoise]` extra, noisereduce, no torch). Offline only — denoise
+    is NOT in the live path until this harness shows a per-environment WER win.
+    **TODO (needs user):** record noisy/café reads, run the A/B, record verdict.
 - **Parakeet TDT vs whisper-turbo backend decision** (eval harness shipped
   2026-06-18) — parakeet-mlx (parakeet-tdt-0.6b-v3) is wired as an opt-in
   backend (whisperquiet/parakeet.py) behind `config.dictation_backend`

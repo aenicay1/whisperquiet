@@ -28,7 +28,9 @@ def wer(ref: str, hyp: str) -> float:
     norm = lambda t: re.sub(r"[^\w\s']", "", t.lower()).split()  # noqa: E731
     r, h = norm(ref), norm(hyp)
     if not r:
-        return 0.0
+        # empty reference: perfect only if the hypothesis is also empty,
+        # otherwise fully wrong (never silently score a non-empty hyp as 0%)
+        return 1.0 if h else 0.0
     d = list(range(len(h) + 1))
     for i, rw in enumerate(r, 1):
         prev, d[0] = d[0], i
@@ -129,6 +131,11 @@ def main() -> int:
                     help="run only variants whose name contains this substring")
     ap.add_argument("--show-text", action="store_true",
                     help="print each transcription")
+    ap.add_argument("--json", default="",
+                    help="append the best (lowest-WER) variant of this run to "
+                         "this JSON baseline file (e.g. results/baseline.json)")
+    ap.add_argument("--condition", default="unspecified",
+                    help="label for the recording condition, e.g. quiet/cafe/whisper")
     args = ap.parse_args()
 
     refs = [l.strip() for l in open(args.refs) if l.strip()]
@@ -154,18 +161,70 @@ def main() -> int:
     header = "variant".ljust(26) + "".join(
         f"  {n[:12]:>14s}" for n, _, _ in takes) + "   mean    sec/take"
     print(header)
+    scored = []  # (name, cfg, mean_wer) for the --json best-variant pick
     for name, cfg in VARIANTS.items():
         if args.only and args.only not in name:
             continue
         res = run_variant(cfg, takes)
         mean = sum(r[0] for r in res) / len(res)
         secs = sum(r[1] for r in res) / len(res)
+        scored.append((name.strip(), cfg, mean))
         print(name.ljust(26) + "".join(f"  {r[0]:13.1f}%" for r in res)
               + f"  {mean:5.1f}%  {secs:7.1f}s")
         if args.show_text:
             for (tn, _, _), r in zip(takes, res):
                 print(f"    [{tn}] {r[2]}")
+
+    if args.json and scored:
+        _record_measurement(args.json, scored, takes, args.condition)
     return 0
+
+
+def _record_measurement(path: str, scored: list, takes: list, condition: str) -> None:
+    """Append the best (lowest-WER) variant of this run to a baseline JSON file.
+
+    Reproducible counterpart to a commit-message number: records date, git
+    commit, model, prompt variant, condition, normalized mean WER, and take
+    count, so the baseline can be regenerated rather than narrated.
+    """
+    import datetime
+    import subprocess
+
+    name, cfg, mean = min(scored, key=lambda s: s[2])
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent),
+        ).stdout.strip() or None
+    except Exception:
+        commit = None
+
+    measurement = {
+        "date": datetime.date.today().isoformat(),
+        "source_commit": commit,
+        "backend": "whisper",
+        "model": cfg.get("model", TURBO),
+        "prompt": name,
+        "condition": condition,
+        "scoring": "normalized WER, full-ref concatenation",
+        "wer_pct": round(mean, 1),
+        "n_takes": len(takes),
+        "note": "Recorded by scripts/bench_wer.py --json (best variant of the run).",
+    }
+
+    p = Path(path)
+    doc = {"measurements": []}
+    if p.exists():
+        try:
+            doc = json.loads(p.read_text())
+        except ValueError:
+            pass
+    doc.setdefault("measurements", []).append(measurement)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(doc, indent=2) + "\n")
+    print(f"\nrecorded baseline -> {path}: "
+          f"{measurement['prompt']} {measurement['wer_pct']}% "
+          f"({condition}, {len(takes)} takes)")
 
 
 if __name__ == "__main__":
