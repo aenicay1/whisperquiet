@@ -18,6 +18,15 @@ class Config:
     flag_key: str = "shift_r"
     # HuggingFace repo for the MLX whisper model
     model_repo: str = "mlx-community/whisper-large-v3-turbo"
+    # Which dictation backend to use: "whisper" (mlx-whisper, the shipping
+    # default) or "parakeet" (parakeet-mlx, opt-in — requires the optional
+    # [parakeet] extra). Selected via backends.get_backend; the turbo-vs-parakeet
+    # choice is meant to be made from scripts/bench_backends.py data, not flipped
+    # blindly. Stays "whisper" until that comparison says otherwise.
+    dictation_backend: str = "whisper"
+    # HuggingFace repo for the parakeet model (used only when dictation_backend
+    # == "parakeet"). v3 = English + 25 EU languages, native punctuation/ITN.
+    parakeet_repo: str = "mlx-community/parakeet-tdt-0.6b-v3"
     language: str = "en"
     # Seconds between streaming re-transcriptions while PTT is held
     stream_interval: float = 0.7

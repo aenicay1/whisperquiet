@@ -17,6 +17,13 @@ dependencies = [
     "opencv-python",
 ]
 
+[project.optional-dependencies]
+# Opt-in Parakeet TDT dictation backend (whisperquiet/parakeet.py), gated by
+# config.dictation_backend == "parakeet". Also required to run the parakeet leg
+# of scripts/bench_backends.py. NOT a default dependency — install explicitly:
+#   pip install -e '.[parakeet]'
+parakeet = ["parakeet-mlx>=0.3"]
+
 [project.scripts]
 whisperquiet = "whisperquiet.app:main"
 

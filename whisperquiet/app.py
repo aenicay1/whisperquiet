@@ -8,7 +8,7 @@ import time
 import rumps
 
 from . import config as config_mod
-from . import inject, transcribe
+from . import backends, inject
 from .audio import MicRecorder
 from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
@@ -193,7 +193,8 @@ class WhisperQuietApp(rumps.App):
             AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
                 AV.AVMediaTypeAudio, lambda granted: print("mic granted:", granted, flush=True)
             )
-        transcribe.warm_up(self.config.model_repo)
+        backend, model_repo = backends.get_backend(self.config)
+        backend.warm_up(model_repo)
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
         # keep the model resident: a tiny periodic decode every ~90s so the
@@ -212,9 +213,8 @@ class WhisperQuietApp(rumps.App):
                 if self._recording.is_set():
                     continue
                 try:
-                    transcribe.transcribe(
-                        np.zeros(1600, dtype=np.float32), self.config.model_repo
-                    )
+                    backend, model_repo = backends.get_backend(self.config)
+                    backend.transcribe(np.zeros(1600, dtype=np.float32), model_repo)
                 except Exception:
                     pass
 
@@ -366,13 +366,18 @@ class WhisperQuietApp(rumps.App):
         import numpy as np
         from .incremental import IncrementalTranscriber
 
+        # Backend (whisper default, or parakeet if opted in); model_repo follows
+        # the choice. Bound once per dictation so every decode below — partials,
+        # the incremental tail, and the final — uses the same model.
+        backend, model_repo = backends.get_backend(cfg)
+
         # Incremental: each silence-bounded segment is transcribed ONCE and
         # locked, so only the live tail re-runs — constant release latency and
         # the preview equals the final. transcribe_fn binds model+vocab.
         def _tx(chunk):
             with self._tx_lock:  # never overlap the keep-warm decode
-                return transcribe.transcribe(
-                    chunk, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                return backend.transcribe(
+                    chunk, model_repo, cfg.language, vocabulary=cfg.vocabulary
                 )
 
         inc = IncrementalTranscriber(_tx)
@@ -386,8 +391,8 @@ class WhisperQuietApp(rumps.App):
                 print("incremental update failed, falling back:", exc, flush=True)
                 use_incremental = False
                 with self._tx_lock:
-                    partial = transcribe.transcribe(
-                        snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                    partial = backend.transcribe(
+                        snap, model_repo, cfg.language, vocabulary=cfg.vocabulary
                     )
             # incremental runs silently to pre-lock segments (fast release);
             # no live preview box — the notch indicator shows we're listening
@@ -407,13 +412,13 @@ class WhisperQuietApp(rumps.App):
             except Exception as exc:
                 print("incremental finalize failed, falling back:", exc, flush=True)
                 with self._tx_lock:
-                    final = transcribe.transcribe_long(
-                        audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                    final = backend.transcribe_long(
+                        audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
                     )
         else:
             with self._tx_lock:
-                final = transcribe.transcribe_long(
-                    audio, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
+                final = backend.transcribe_long(
+                    audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
                 )
         audio_name = None
         if cfg.keep_audio and audio.size > 8000:

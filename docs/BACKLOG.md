@@ -4,6 +4,16 @@ Running list of future work. Newest user requests at the top of each section.
 Not in priority order within a section unless noted.
 
 ## Dictation quality
+- **Parakeet TDT vs whisper-turbo backend decision** (eval harness shipped
+  2026-06-18) — parakeet-mlx (parakeet-tdt-0.6b-v3) is wired as an opt-in
+  backend (whisperquiet/parakeet.py) behind `config.dictation_backend`
+  (default "whisper", unchanged) + the optional `[parakeet]` extra. Decision is
+  DATA-GATED, not made yet: run `scripts/bench_backends.py bench-sentences.txt`
+  (needs fresh reads of the ref sheet as the most-recent WAVs) for WER + latency
+  + RTF + peak-memory on this Mac, then record the verdict here before flipping
+  the default. Known trade-offs to weigh against the numbers: parakeet has no
+  hotword/vocab biasing in the MLX port (our `vocabulary` is ignored there),
+  English+25 EU langs only, but ~native punctuation/ITN and much lower RTF.
 - ~~[HIGH] Long-form dictation garbling~~ DONE 2026-06-14 — VAD chunking (transcribe_long).
 - (orig note, user req 2026-06-12) —
   a 45s continuous "yap" lost sentences 2-6 entirely; one-shot transcription
