@@ -150,7 +150,7 @@ def _hard_split(span: np.ndarray, window: int, max_chunk: int) -> list[np.ndarra
 
 def spectrum_bands(
     samples: np.ndarray,
-    n_bands: int = 24,
+    n_bands: int = 40,
     sample_rate: int = SAMPLE_RATE,
 ) -> list[float]:
     """Log-spaced speech-band magnitude spectrum, each band roughly 0..1.
@@ -186,7 +186,7 @@ def spectrum_bands(
         return flat
     edges = np.logspace(np.log10(lo), np.log10(hi), n_bands + 1)
 
-    ref = 0.04  # same "quiet speech is visible" feel as level()'s /0.04
+    ref = 0.012  # sensitive: quiet speech should clearly move the bars
     out: list[float] = []
     for i in range(n_bands):
         mask = (freqs >= edges[i]) & (freqs < edges[i + 1])
@@ -196,7 +196,8 @@ def spectrum_bands(
             out.append(0.0)
             continue
         mag = float(np.sqrt(np.mean(np.square(spectrum[mask]))))
-        out.append(float(min(1.0, mag / ref)))
+        # sqrt curve: perceptual boost so low-energy bands are still visible
+        out.append(float(min(1.0, np.sqrt(mag / ref))))
     return out
 
 

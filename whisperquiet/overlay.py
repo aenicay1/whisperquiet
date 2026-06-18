@@ -340,7 +340,7 @@ class _SpectrumView(AppKit.NSView):
             n = len(heights)
             cx = h / 2.0
             slot = w / n
-            bar_w = max(1.5, slot * 0.55)
+            bar_w = max(1.0, slot * 0.42)
             r, g, b = _SPECTRUM_RGB
             for i, level in enumerate(heights):
                 level = max(0.0, min(1.0, level))
@@ -372,7 +372,7 @@ class NotchIndicator:
     ``set_level`` remains as a single-bar fallback if the spectrum is never fed.
     """
 
-    _N_BANDS = 24
+    _N_BANDS = 40
     _W, _H = 240, 26
     # spectrum / fallback-bar region: right of the "listening" label
     _SPEC_X, _SPEC_W = 100, 128
