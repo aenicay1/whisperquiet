@@ -290,8 +290,8 @@ class Overlay:
 # liquid glass: translucent cool-white, not a saturated accent
 _SPECTRUM_RGB = (0.90, 0.95, 1.0)
 _SPECTRUM_ATTACK = 0.30  # how fast bars rise toward a louder target (lower = smoother)
-_SPECTRUM_ALPHA_REST = 0.35
-_SPECTRUM_ALPHA_PEAK = 0.95
+_SPECTRUM_ALPHA_REST = 0.55
+_SPECTRUM_ALPHA_PEAK = 1.0
 _SPECTRUM_DECAY = 0.8  # prev*0.8 floor → bars drift down gracefully, never strobe
 
 
@@ -356,6 +356,11 @@ class _SpectrumView(AppKit.NSView):
             slot = w / n
             bar_w = max(1.0, slot * 0.42)
             r, g, b = _SPECTRUM_RGB
+            # dark backing strip so light bars keep contrast on any background
+            AppKit.NSColor.colorWithCalibratedWhite_alpha_(0.0, 0.28).set()
+            AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                AppKit.NSMakeRect(0, 0, w, h), 6.0, 6.0
+            ).fill()
             for i, level in enumerate(heights):
                 level = max(0.0, min(1.0, level))
                 # full height of the mirrored bar; clamp to at least a faint stub
