@@ -443,17 +443,6 @@ class WhisperQuietApp(rumps.App):
             threading.Timer(1.5, self.overlay.hide).start()
         if final:
             inject.type_text(final, cfg.inject_mode)
-            # commit confirmation: brief ✓ so you know it landed. Guard the
-            # delayed hide so it can't tear down the NEXT dictation's overlay
-            # if a new press lands within the 0.8s window.
-            self.overlay.show()
-            self.overlay.update(f"✓ {len(final.split())} words")
-
-            def _hide_confirmation() -> None:
-                if not self._recording.is_set():
-                    self.overlay.hide()
-
-            threading.Timer(0.8, _hide_confirmation).start()
             self.stats.record("dictation")
             self.stats.record("words", len(final.split()))
             self._last_commit_t = time.monotonic()
