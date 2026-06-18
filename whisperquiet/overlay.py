@@ -287,7 +287,9 @@ class Overlay:
 
 # single teal accent — liquid glass, NOT a rainbow. Encode level by HEIGHT and
 # ALPHA only; never shift hue per bar.
-_SPECTRUM_RGB = (0.25, 0.87, 0.82)
+# liquid glass: translucent cool-white, not a saturated accent
+_SPECTRUM_RGB = (0.90, 0.95, 1.0)
+_SPECTRUM_ATTACK = 0.30  # how fast bars rise toward a louder target (lower = smoother)
 _SPECTRUM_ALPHA_REST = 0.35
 _SPECTRUM_ALPHA_PEAK = 0.95
 _SPECTRUM_DECAY = 0.8  # prev*0.8 floor → bars drift down gracefully, never strobe
@@ -321,8 +323,20 @@ class _SpectrumView(AppKit.NSView):
         prev = self._heights
         if len(prev) != len(target):
             prev = [0.0] * len(target)
+        # spatial smoothing: blur each band with its neighbors so adjacent
+        # bars flow into one another instead of spiking independently
+        n = len(target)
+        smoothed = [
+            0.25 * target[max(0, i - 1)]
+            + 0.5 * target[i]
+            + 0.25 * target[min(n - 1, i + 1)]
+            for i in range(n)
+        ]
+        # temporal easing: rise gently toward a louder target (attack), fall
+        # slowly (decay floor) — no instant snaps, reads as fluid
         self._heights = [
-            max(t, p * _SPECTRUM_DECAY) for t, p in zip(target, prev)
+            p + (t - p) * _SPECTRUM_ATTACK if t > p else max(t, p * _SPECTRUM_DECAY)
+            for t, p in zip(smoothed, prev)
         ]
         self.setNeedsDisplay_(True)
 
