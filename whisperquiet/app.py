@@ -265,8 +265,7 @@ class WhisperQuietApp(rumps.App):
             self.overlay.update("⚠️ mic failed — check input device")
             threading.Timer(2.0, self.overlay.hide).start()
             return
-        self.overlay.show()
-        self.indicator.show()
+        self.indicator.show()  # notch "listening" pill is the only live cue
         self._worker = threading.Thread(target=self._stream_loop, daemon=True)
         self._worker.start()
         threading.Thread(target=self._level_loop, daemon=True).start()
@@ -385,9 +384,9 @@ class WhisperQuietApp(rumps.App):
                     partial = transcribe.transcribe(
                         snap, cfg.model_repo, cfg.language, vocabulary=cfg.vocabulary
                     )
+            # incremental runs silently to pre-lock segments (fast release);
+            # no live preview box — the notch indicator shows we're listening
             if partial:
-                shown = clean_text(partial) if cfg.cleanup_enabled else partial
-                self.overlay.update(shown)
                 last_partial = partial
             self._recording_wait(cfg.stream_interval)
 
