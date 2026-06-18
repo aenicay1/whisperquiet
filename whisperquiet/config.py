@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -37,6 +39,13 @@ class Config:
     # optional on-device LLM rescoring stage (fixes implausible recognition
     # errors); OFF by default — opt-in, requires the optional mlx_lm dependency
     rescore_enabled: bool = False
+    # hard speech-presence gate on the committed dictation (whisperquiet/vad.py):
+    # drops the result when the audio is silence or steady tonal noise so it is
+    # never committed as a hallucination. OFF by default — the built-in detector
+    # is conservative on purpose (it must never swallow low-energy whispered
+    # speech); turn it on per-environment only after a measured win. A Silero
+    # ONNX detector is the planned upgrade before this becomes a default.
+    vad_gate_enabled: bool = False
     # keep raw->cleaned transcript pairs on-device (personalization corpus)
     keep_transcripts: bool = True
     # save each dictation's audio as WAV on-device (WER benchmarking + LoRA)
@@ -56,5 +65,34 @@ def load() -> Config:
 
 
 def save(config: Config) -> None:
+    """Persist config atomically.
+
+    The settings bridge (settings_server) and the main app thread can both call
+    save(); a plain write_text() can interleave or be torn by a crash and leave
+    a half-written config.json that load() then fails to parse, losing every
+    user tunable. Write to a temp file in the same directory, fsync it, then
+    os.replace onto the target — os.replace is atomic on the same filesystem, so
+    a reader (or a crash) only ever sees the old file or the complete new one.
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(asdict(config), indent=2))
+    data = json.dumps(asdict(config), indent=2)
+    fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".config-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            fd = None  # fdopen now owns it; the with-block closes it
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, CONFIG_PATH)
+    except BaseException:
+        # never leak the fd (if fdopen itself failed) or leave a stray temp file
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
