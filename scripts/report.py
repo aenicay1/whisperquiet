@@ -19,6 +19,24 @@ from whisperquiet.stats import STATS_PATH
 GESTURE_KINDS = ["nod", "shake", "pause", "left_click", "double_click", "right_click", "scroll", "drag"]
 
 
+def _percentile(values: list[int], q: float) -> float:
+    """Linear-interpolated q-th percentile (q in 0..100) of a value list.
+
+    Empty list -> 0.0. Used for the latency distribution, where summing (as the
+    per-kind totals do) would be meaningless.
+    """
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    pos = (len(ordered) - 1) * (q / 100.0)
+    lo = int(pos)
+    hi = min(lo + 1, len(ordered) - 1)
+    frac = pos - lo
+    return ordered[lo] * (1 - frac) + ordered[hi] * frac
+
+
 def _load_events(path: Path, day: str) -> list[dict]:
     """All well-formed events from a jsonl file falling on the given local day."""
     events: list[dict] = []
@@ -50,6 +68,17 @@ def render(stats_path: Path, feedback_path: Path, day: str | None = None) -> str
         if isinstance(kind, str) and isinstance(n, int):
             totals[kind] = totals.get(kind, 0) + n
 
+    # latency events carry the per-event value in n; collect the raw lists so we
+    # can report the distribution (p50/p95) rather than a meaningless sum.
+    commit_latencies = [
+        e["n"] for e in stats_events
+        if e.get("kind") == "commit_latency_ms" and isinstance(e.get("n"), int)
+    ]
+    transcribe_latencies = [
+        e["n"] for e in stats_events
+        if e.get("kind") == "transcribe_ms" and isinstance(e.get("n"), int)
+    ]
+
     dictations = totals.get("dictation", 0)
     words = totals.get("words", 0)
     touches = totals.get("trackpad_touch", 0)
@@ -79,9 +108,25 @@ def render(stats_path: Path, feedback_path: Path, day: str | None = None) -> str
     ]
     for kind in GESTURE_KINDS:
         lines.append(f"  {kind:<16}  {totals.get(kind, 0):6d}")
+    commit_p50 = _percentile(commit_latencies, 50)
+    commit_p95 = _percentile(commit_latencies, 95)
+    tx_p50 = _percentile(transcribe_latencies, 50)
+    # the DESIGN.md commit target is <1s; judge on the median so one cold
+    # outlier doesn't fail an otherwise-snappy day
+    latency_verdict = (
+        "  n/a" if not commit_latencies
+        else "PASS" if commit_p50 < 1000 else "FAIL"
+    )
     lines += [
         "",
+        "latency (release -> committed text)",
+        f"  commit p50        {commit_p50:6.0f} ms",
+        f"  commit p95        {commit_p95:6.0f} ms",
+        f"  transcribe p50    {tx_p50:6.0f} ms  (decode share of commit)",
+        f"  samples           {len(commit_latencies):6d}",
+        "",
         "targets (DESIGN.md success bar)",
+        f"  commit p50                      {commit_p50:6.0f}  target <1000ms  {latency_verdict}",
         f"  flags/hour (false-click proxy)  {flag_rate:6.2f}  target <1/hour  {flag_verdict}",
         f"  trackpad_touches/hour           {touch_rate:6.2f}  target <5/hour  {touch_verdict}",
     ]

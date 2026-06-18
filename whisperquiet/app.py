@@ -8,7 +8,7 @@ import time
 import rumps
 
 from . import config as config_mod
-from . import backends, inject
+from . import backends, inject, vad
 from .audio import MicRecorder
 from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
@@ -37,6 +37,10 @@ class WhisperQuietApp(rumps.App):
         self.feedback = FeedbackLog()
         self.transcripts = FeedbackLog(config_mod.CONFIG_DIR / "transcripts.jsonl")
         self._last_commit_t = 0.0
+        # monotonic timestamp of the most recent PTT release, for measuring
+        # end-to-end commit latency (release -> text injected). None between
+        # dictations so a stale value is never attributed to a later commit.
+        self._release_t: float | None = None
         self._last_words = 0
         self._edit_keys = 0
         self._edit_logged = True
@@ -272,6 +276,13 @@ class WhisperQuietApp(rumps.App):
 
     def _on_ptt_release(self) -> None:
         print("PTT release", flush=True)
+        # stamp release time for the commit-latency measurement; _stream_loop
+        # reads it right before it injects the final text. Only stamp if one is
+        # not already pending: a rapid release/press/release while the previous
+        # dictation is still finishing (that press is dropped in _on_ptt_press)
+        # must not overwrite the first release's timestamp and inflate latency.
+        if self._release_t is None:
+            self._release_t = time.monotonic()
         self._recording.clear()
         # instant feedback: UI drops now, final transcription finishes unseen
         self.indicator.hide()
@@ -404,6 +415,7 @@ class WhisperQuietApp(rumps.App):
         self.status_item.title = "Status: finishing…"
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)
+        decode_t0 = time.monotonic()
         if rms < 2e-4:
             final = last_partial  # near-silence: don't let whisper hallucinate
         elif use_incremental:
@@ -420,6 +432,13 @@ class WhisperQuietApp(rumps.App):
                 final = backend.transcribe_long(
                     audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
                 )
+        transcribe_ms = int((time.monotonic() - decode_t0) * 1000)
+        # optional hard speech-presence gate (default off): never commit text
+        # decoded from silence or steady tonal noise. Conservative by design —
+        # it will not gate out low-energy whispered speech.
+        if cfg.vad_gate_enabled and final and audio.size and not vad.is_speech(audio):
+            print("vad gate: no speech detected — dropping", flush=True)
+            final = ""
         audio_name = None
         if cfg.keep_audio and audio.size > 8000:
             try:
@@ -451,6 +470,19 @@ class WhisperQuietApp(rumps.App):
             self.overlay.update("…heard nothing — check mic/level bar")
             threading.Timer(1.5, self.overlay.hide).start()
         if final:
+            # end-to-end commit latency: PTT release -> first text injected.
+            # Recorded BEFORE the inject so it excludes typing time; transcribe_ms
+            # is the decode share of it. A report script reads the raw JSONL for
+            # p50/p95. Both are recorded only for COMMITTED dictations: a gated
+            # or empty result is not a commit, so it correctly never enters the
+            # latency distribution. release_t is consumed once so it can't bleed
+            # into a later camera/jaw-triggered dictation that has no PTT release.
+            release_t, self._release_t = self._release_t, None
+            if release_t is not None:
+                self.stats.record(
+                    "commit_latency_ms", int((time.monotonic() - release_t) * 1000)
+                )
+            self.stats.record("transcribe_ms", transcribe_ms)
             inject.type_text(final, cfg.inject_mode)
             self.stats.record("dictation")
             self.stats.record("words", len(final.split()))
@@ -458,6 +490,8 @@ class WhisperQuietApp(rumps.App):
             self._last_words = len(final.split())
             self._edit_keys = 0
             self._edit_logged = False
+        else:
+            self._release_t = None  # nothing committed; don't keep a stale stamp
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
 
     def _recording_wait(self, seconds: float) -> None:
