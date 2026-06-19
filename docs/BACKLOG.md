@@ -24,16 +24,21 @@ Not in priority order within a section unless noted.
     (optional `[denoise]` extra, noisereduce, no torch). Offline only — denoise
     is NOT in the live path until this harness shows a per-environment WER win.
     **TODO (needs user):** record noisy/café reads, run the A/B, record verdict.
-- **Parakeet TDT vs whisper-turbo backend decision** (eval harness shipped
-  2026-06-18) — parakeet-mlx (parakeet-tdt-0.6b-v3) is wired as an opt-in
-  backend (whisperquiet/parakeet.py) behind `config.dictation_backend`
-  (default "whisper", unchanged) + the optional `[parakeet]` extra. Decision is
-  DATA-GATED, not made yet: run `scripts/bench_backends.py bench-sentences.txt`
-  (needs fresh reads of the ref sheet as the most-recent WAVs) for WER + latency
-  + RTF + peak-memory on this Mac, then record the verdict here before flipping
-  the default. Known trade-offs to weigh against the numbers: parakeet has no
-  hotword/vocab biasing in the MLX port (our `vocabulary` is ignored there),
-  English+25 EU langs only, but ~native punctuation/ITN and much lower RTF.
+- ~~**Parakeet TDT vs whisper-turbo backend decision**~~ DECIDED 2026-06-19:
+  **KEEP WHISPER TURBO.** Evaluated parakeet-tdt-0.6b-v3 against turbo on the
+  real quiet + whisper takes (same scorer, no vocab on either side):
+  Parakeet 7.1% / 11.2% WER vs raw turbo 6.1% / 9.2% — Parakeet LOSES on
+  accuracy in both conditions, and shipping turbo+vocab (2.0% / 7.1%) beats it
+  decisively. Parakeet's only win is ~2x latency (~0.9s vs ~2.1s/take steady
+  state), which doesn't matter when turbo is already fast enough and accuracy is
+  the gap. It also has NO vocab biasing, so it mangled the domain terms turbo
+  gets right (Circleback→"circle back", Springdale→lowercase, dropped "EBITDA").
+  parakeet-mlx is left wired as the opt-in `[parakeet]` backend for future
+  re-eval. If revisited: (1) parakeet.py currently writes a temp WAV + calls
+  model.transcribe(path), which needs ffmpeg — use the array path instead
+  (`get_logmel(mx.array(audio), model.preprocessor_config)` -> `model.generate`,
+  no ffmpeg); (2) it only earns the default if NeMo-style word boosting lands in
+  the MLX port to close the vocab gap.
 - ~~[HIGH] Long-form dictation garbling~~ DONE 2026-06-14 — VAD chunking (transcribe_long).
 - (orig note, user req 2026-06-12) —
   a 45s continuous "yap" lost sentences 2-6 entirely; one-shot transcription
