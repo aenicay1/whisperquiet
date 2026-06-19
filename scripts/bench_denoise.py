@@ -32,7 +32,7 @@ _REPO_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from bench_wer import wer  # noqa: E402  reuse the exact WER scorer
+from bench_wer import load_refs, wer  # noqa: E402  reuse scorer + ref loader
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 
@@ -73,7 +73,7 @@ def main() -> int:
         print(f"denoise backend not installed — {denoise._INSTALL_HINT}")
         return 1
 
-    refs = [l.strip() for l in open(args.refs) if l.strip()]
+    refs = load_refs(args.refs)
     full_ref = " ".join(refs)
     wavs = sorted(Path(args.audio_dir).glob("*.wav"),
                   key=lambda p: p.stat().st_mtime)[-args.takes:]

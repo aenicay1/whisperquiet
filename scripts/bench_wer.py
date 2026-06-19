@@ -40,6 +40,25 @@ def wer(ref: str, hyp: str) -> float:
     return d[len(h)] / len(r)
 
 
+def load_refs(path: str) -> list[str]:
+    """Read reference sentences, one per line, warning on likely pollution.
+
+    A single line with many words is almost always a pasted transcription
+    paragraph that leaked into the refs file, not a reference sentence — and it
+    silently inflates WER (every stray word scores as an error), which is what
+    once made a near-perfect read score ~50%. Warn loudly instead of scoring
+    against garbage.
+    """
+    refs = [l.strip() for l in open(path) if l.strip()]
+    for i, line in enumerate(refs, 1):
+        if len(line.split()) > 25:
+            print(f"WARNING: {path} line {i} has {len(line.split())} words — "
+                  "looks like a pasted paragraph, not a reference sentence. "
+                  "WER will be inflated; keep one sentence per line.",
+                  file=sys.stderr)
+    return refs
+
+
 TURBO = "mlx-community/whisper-large-v3-turbo"
 FULL = "mlx-community/whisper-large-v3-mlx"
 
@@ -138,7 +157,7 @@ def main() -> int:
                     help="label for the recording condition, e.g. quiet/cafe/whisper")
     args = ap.parse_args()
 
-    refs = [l.strip() for l in open(args.refs) if l.strip()]
+    refs = load_refs(args.refs)
     full_ref = " ".join(refs)
     wavs = sorted(Path(args.audio_dir).glob("*.wav"),
                   key=lambda p: p.stat().st_mtime)[-args.takes:]

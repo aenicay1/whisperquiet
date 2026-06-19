@@ -1,7 +1,7 @@
 {
   "_about": "Tracked WER baseline for whisperquiet dictation. The point is to make the accuracy gap explicit and queryable instead of buried in commit messages. Update via: scripts/bench_wer.py scripts/bench-sentences.txt --takes N --json results/baseline.json (records the best variant of a run). WER here is NORMALIZED (lowercased, punctuation stripped, whitespace-split) per scripts/bench_wer.py:wer, scored against the full concatenation of the reference lines.",
   "design_target_wer_pct": 5.0,
-  "design_note": "DESIGN.md success bar is >=95% word accuracy (<=5% WER) on whispered speech in a quiet room. The 'real recordings' measurement below is ~11 points short of that — closing this gap is the Phase 0 goal.",
+  "design_note": "DESIGN.md success bar is >=95% word accuracy (<=5% WER) on whispered speech in a quiet room. Closing the real-world gap is the Phase 0 goal.",
   "measurements": [
     {
       "date": "2026-06-12",
@@ -13,12 +13,34 @@
       "scoring": "normalized WER, full-ref concatenation",
       "wer_pct": 16.3,
       "n_takes": null,
-      "note": "Best variant of the WER grid; staccato vocab prompt beat the plain glossary (18.9 -> 16.3). Per-take counts not retained — recorded from the commit narrative, not a results file. Treat as historical, not reproducible."
+      "note": "Best variant of the WER grid; staccato vocab prompt beat the plain glossary (18.9 -> 16.3). Per-take counts not retained - recorded from the commit narrative, not a results file. Treat as historical, not reproducible."
+    },
+    {
+      "date": "2026-06-19",
+      "source_commit": "4064d7d",
+      "backend": "whisper",
+      "model": "mlx-community/whisper-large-v3-turbo",
+      "prompt": "turbo gates norm +vocab",
+      "condition": "quiet",
+      "scoring": "normalized WER, full-ref concatenation",
+      "wer_pct": 2.0,
+      "n_takes": 1,
+      "note": "Recorded by scripts/bench_wer.py --json (best variant of the run)."
+    },
+    {
+      "date": "2026-06-19",
+      "source_commit": "4064d7d",
+      "backend": "whisper",
+      "model": "mlx-community/whisper-large-v3-mlx",
+      "prompt": "full  gates norm +vocab",
+      "condition": "whisper",
+      "scoring": "normalized WER, full-ref concatenation",
+      "wer_pct": 5.1,
+      "n_takes": 1,
+      "note": "Recorded by scripts/bench_wer.py --json (best variant of the run)."
     }
   ],
   "pending": [
-    "Fresh REPRODUCIBLE quiet-room baseline: record 2-3 full reads of scripts/bench-sentences.txt in a quiet room, then run scripts/bench_wer.py ... --json results/baseline.json so the number is regenerable, not narrated.",
-    "Noisy/cafe baseline: same reads with cafe/fan/AC background, to quantify the noise gap and feed scripts/bench_denoise.py.",
-    "Whispered baseline: same reads spoken at dictation volume (whisper), the actual core use case and the worst-WER condition."
+    "Noisy/cafe baseline: record full reads of scripts/bench-sentences.txt with cafe/fan/AC background, then scripts/bench_wer.py ... --json --condition cafe, to quantify the noise gap and feed scripts/bench_denoise.py."
   ]
 }
