@@ -29,6 +29,11 @@ parakeet = ["parakeet-mlx>=0.3"]
 # numpy/scipy spectral gating — no torch. Install explicitly:
 #   pip install -e '.[denoise]'
 denoise = ["noisereduce>=3.0"]
+# Opt-in on-device LLM polish stage (whisperquiet/rescore.py), gated by
+# config.rescore_enabled. Repairs recognition errors + dictation artifacts via
+# a small instruction model, fully on device. NOT a default dependency.
+#   pip install -e '.[rescore]'
+rescore = ["mlx-lm>=0.18"]
 
 [project.scripts]
 whisperquiet = "whisperquiet.app:main"

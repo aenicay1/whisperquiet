@@ -26,14 +26,17 @@ monkeypatch it and never download a real model.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from dataclasses import dataclass
 
 # Length guard: if the rescored text differs from the input length by more than
-# this fraction, treat it as a runaway rewrite and discard it. A genuine
-# homophone fix barely moves the length; a paraphrase or hallucinated addition
-# moves it a lot.
-_MAX_LENGTH_DELTA = 0.60
+# this fraction, treat it as a runaway rewrite and discard it. The polish is
+# conservative — recognition fixes plus minor slips barely move the length, and
+# rules cleanup already stripped fillers before this stage — so a large delta
+# means a paraphrase/hallucination/big deletion, not a fix. Kept tight on
+# purpose now that the prompt's mandate is broader than homophones-only.
+_MAX_LENGTH_DELTA = 0.35
 
 # Refusal / preamble / meta patterns. A correction is *only* the corrected text,
 # so any of these means the model editorialized instead of correcting; discard.
@@ -52,14 +55,15 @@ _REFUSAL_PATTERNS = [
 ]
 
 _SYSTEM_PROMPT = (
-    "You correct speech-to-text recognition errors in dictated text. "
-    "A speech recognizer sometimes hears the wrong word that sounds similar to "
-    "the intended one, producing an implausible phrase. Fix ONLY those obvious "
-    "recognition errors: replace a wrong homophone-like word or an implausible "
-    "phrase with the word the speaker clearly meant. Do NOT rephrase, do NOT "
-    "change style, do NOT add or remove content, do NOT fix grammar or "
-    "punctuation, and leave any text that is already correct exactly as is. "
-    "Output ONLY the corrected text with no preamble, quotes, or explanation."
+    "You clean up dictated text from a speech recognizer. Fix two kinds of "
+    "errors: (1) recognition errors, where the recognizer heard a wrong word "
+    "that sounds similar to the intended one, producing an implausible phrase; "
+    "and (2) obvious dictation artifacts: false starts, accidentally repeated "
+    "words, and clear grammatical slips. PRESERVE the speaker's exact meaning, "
+    "wording, and tone. Do NOT rephrase for style, do NOT add or remove any "
+    "substantive content, do NOT change the formality or register, and leave "
+    "anything already correct exactly as is. When in doubt, leave it unchanged. "
+    "Output ONLY the cleaned text with no preamble, quotes, or explanation."
 )
 
 
@@ -108,17 +112,54 @@ def _build_prompt(text: str, config: RescoreConfig) -> str:
     )
 
 
+# model repo -> (model, tokenizer), loaded once and kept resident. mlx_lm.load
+# is expensive (seconds); reloading per utterance would blow the latency budget
+# every single time, so cache it and let warm_up() pre-populate at app start.
+_MODELS: dict = {}
+_LOAD_LOCK = threading.Lock()
+
+
+def _load(model: str):
+    """Load and cache the instruction model. Deferred import keeps mlx_lm
+    optional — the disabled path never reaches here. Double-checked locking so a
+    startup warm_up and a worker-thread dictation can't both load it at once."""
+    cached = _MODELS.get(model)
+    if cached is not None:
+        return cached
+    with _LOAD_LOCK:
+        if model not in _MODELS:  # re-check under the lock
+            from mlx_lm import load  # deferred: optional dependency
+
+            _MODELS[model] = load(model)
+        return _MODELS[model]
+
+
+def warm_up(config: RescoreConfig | None = None) -> None:
+    """Pre-load the rescore model so the first real dictation isn't the cold
+    one. Best-effort and never raises (mirrors the dictation backend warm_up);
+    a no-op when rescoring is disabled."""
+    config = config or RescoreConfig()
+    if not config.enabled:
+        return
+    try:
+        _load(config.model)
+    except Exception:
+        pass
+
+
 def _generate(text: str, config: RescoreConfig) -> str:
     """The single seam that talks to the model. Tests monkeypatch this.
 
-    Lazily imports mlx_lm so the disabled path needs no dependency. Runs the
-    instruction-tuned model deterministically (temperature 0) with the tight
-    system prompt, and returns the raw model output (sanitizing/guarding is the
-    caller's job).
+    Uses the cached (warm) model so only generation time counts against the
+    latency budget. Caps max_tokens just above the input length: a correction
+    is about as long as its input, so this bounds worst-case generation time
+    and stops a runaway from eating the whole budget (the caller's post-hoc
+    budget check then discards anything that still ran long). Returns the raw
+    model output; sanitizing/guarding is the caller's job.
     """
-    from mlx_lm import generate, load  # deferred: optional dependency
+    from mlx_lm import generate  # deferred: optional dependency
 
-    model, tokenizer = load(config.model)
+    model, tokenizer = _load(config.model)
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": _build_prompt(text, config)},
@@ -126,7 +167,16 @@ def _generate(text: str, config: RescoreConfig) -> str:
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
-    return generate(model, tokenizer, prompt=prompt, temp=0.0, verbose=False)
+    max_tokens = min(512, int(len(text.split()) * 2.5) + 24)
+    # force greedy (deterministic) decoding so the same input always yields the
+    # same correction. Older mlx_lm takes temp=; if a version dropped the kwarg,
+    # fall back to its default (also greedy) rather than break.
+    try:
+        return generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens,
+                        temp=0.0, verbose=False)
+    except TypeError:
+        return generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens,
+                        verbose=False)
 
 
 def _sanitize(output: str) -> str:

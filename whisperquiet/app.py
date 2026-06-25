@@ -199,6 +199,11 @@ class WhisperQuietApp(rumps.App):
             )
         backend, model_repo = backends.get_backend(self.config)
         backend.warm_up(model_repo)
+        if self.config.rescore_enabled:
+            # keep the polish model resident too, so the first dictation that
+            # uses it isn't a multi-second cold load (never raises)
+            from .rescore import RescoreConfig, warm_up as rescore_warm_up
+            rescore_warm_up(RescoreConfig(enabled=True))
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
         self.ptt.start()
         # keep the model resident: a tiny periodic decode every ~90s so the
@@ -466,7 +471,12 @@ class WhisperQuietApp(rumps.App):
             final = clean_text(final)
         if final and cfg.rescore_enabled:
             from .rescore import RescoreConfig, rescore
-            final = rescore(final, RescoreConfig(enabled=True))
+            # anchor corrections on the user's vocabulary so domain terms guide
+            # the model instead of getting "corrected" away
+            final = rescore(
+                final,
+                RescoreConfig(enabled=True, context_hint=" ".join(cfg.vocabulary)),
+            )
         if final and cfg.keep_transcripts and (raw_final != final or audio_name):
             self.transcripts.log(
                 "pair", {"raw": raw_final, "clean": final, "audio": audio_name}

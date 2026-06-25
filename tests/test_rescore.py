@@ -128,6 +128,15 @@ def test_nonstring_generate_output_never_raises(monkeypatch, pathological):
     assert rescore(text, RescoreConfig(enabled=True)) == text
 
 
+def test_moderate_expansion_now_rejected(monkeypatch):
+    # The tightened 0.35 length guard must discard a rewrite that grows the text
+    # well beyond a conservative fix (this would have passed the old 0.60 bound).
+    text = "send the letter to the lawyers"  # 30 chars
+    candidate = "please send the signed letter over to all of the lawyers today"  # ~2x
+    monkeypatch.setattr(rescore_mod, "_generate", lambda t, c: candidate)
+    assert rescore(text, RescoreConfig(enabled=True)) == text
+
+
 def test_huge_output_returns_original(monkeypatch):
     text = "send the letter to the lawyers"
     monkeypatch.setattr(rescore_mod, "_generate", lambda t, c: "x" * 10_000_000)
@@ -163,3 +172,50 @@ def test_punctuation_meta_labels_still_rejected(monkeypatch):
 def test_module_imports_without_mlx_lm():
     # Importing the module must not require the optional dependency.
     assert "mlx_lm" not in sys.modules
+
+
+def test_load_caches_model(monkeypatch):
+    # _load must load once and reuse — reloading per utterance would blow the
+    # latency budget every call.
+    import types
+
+    calls = {"n": 0}
+    fake = types.ModuleType("mlx_lm")
+
+    def load(repo):
+        calls["n"] += 1
+        return ("model", "tok")
+
+    fake.load = load
+    monkeypatch.setitem(sys.modules, "mlx_lm", fake)
+    monkeypatch.setattr(rescore_mod, "_MODELS", {})
+
+    first = rescore_mod._load("repo/x")
+    second = rescore_mod._load("repo/x")
+    assert first == ("model", "tok")
+    assert second is first
+    assert calls["n"] == 1  # cached after the first load
+
+
+def test_warm_up_noop_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        rescore_mod, "_load",
+        lambda m: (_ for _ in ()).throw(AssertionError("must not load when disabled")),
+    )
+    rescore_mod.warm_up(RescoreConfig(enabled=False))  # no load, no raise
+    rescore_mod.warm_up(None)  # default config is disabled
+
+
+def test_warm_up_never_raises(monkeypatch):
+    def boom(model):
+        raise RuntimeError("model load failed")
+
+    monkeypatch.setattr(rescore_mod, "_load", boom)
+    rescore_mod.warm_up(RescoreConfig(enabled=True))  # swallows, never propagates
+
+
+def test_warm_up_loads_when_enabled(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(rescore_mod, "_load", lambda m: seen.setdefault("model", m))
+    rescore_mod.warm_up(RescoreConfig(enabled=True, model="repo/y"))
+    assert seen["model"] == "repo/y"
