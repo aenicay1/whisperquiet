@@ -79,6 +79,18 @@ Not in priority order within a section unless noted.
   preview, or hold the preview until confidence settles. Reduce the "I saw X,
   it pasted Y" whiplash.
 - ~~LLM rescoring (fix implausible errors)~~ SHIPPED 2026-06-14, off by default (rescore_enabled); needs mlx_lm + real-latency cancellation before default-on.
+- **Level-2 polish A/B 2026-06-19 (scripts/bench_polish.py over 40 real dictations,
+  Qwen2.5-1.5B-4bit): KEEP OFF.** Latency OK (p50 490ms, p95 1.5s, applied 90%,
+  changed 35%), but the model OVER-EDITS: on ~1/3 of its changes it rephrased or
+  dropped specifics it was told to preserve — guessed "Clay" -> "a typo", dropped
+  "Instantly" and "buy and block", deleted "including calendar invites". Unsafe
+  for context-rich dictation. Insight: punctuation/sentence-splitting edits were
+  safe+good; WORD-level edits were the danger. Paths to revisit (ranked): (1)
+  harden prompt + drop _MAX_LENGTH_DELTA ~0.35->0.15 to auto-kill big rewrites,
+  re-run A/B; (2) if small-model restraint stays poor, scope to punctuation/caps
+  only (no word changes); (3) try a more capable model and measure the latency
+  cost. Also: even meaning-preserving, it adds ~0.5s p50 to every commit — only
+  worth enabling where the polish clearly beats that responsiveness cost.
 - LoRA fine-tune on the user's own voice/whisper (the structural WER win;
   corpus already accumulating in audio/ + transcripts.jsonl).
 - Auto-vocabulary harvesting — propose vocab entries from observed edits
