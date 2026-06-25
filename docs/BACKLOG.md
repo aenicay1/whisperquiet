@@ -3,6 +3,22 @@
 Running list of future work. Newest user requests at the top of each section.
 Not in priority order within a section unless noted.
 
+## Reliability
+- ~~Dictation worker hung on a wedged mic, silently bricking all later PTT~~
+  FIXED 2026-06-19 — MicRecorder.stop() is now time-bounded (2s watchdog +
+  abandon) so the worker can't hang on PortAudio close; a busy worker now shows
+  "finishing previous dictation…" instead of silently dropping presses; stream
+  callbacks are gated by accepting+generation so an abandoned stream can't
+  pollute a later take.
+- **KNOWN RESIDUAL: a truly hung MLX decode still needs a restart.** If a
+  partial/finalize decode ever wedges the GPU, it holds `_tx_lock` forever, so
+  the worker stays alive and new dictations block on the lock — no in-process
+  recovery is possible (you cannot kill a Python thread, and a watchdog "new
+  session" would just block on the same lock). Never observed in practice; the
+  real fix is running decode out-of-process (subprocess we can kill) or a
+  bounded `_tx_lock.acquire(timeout=...)` fallback. Lower priority than it
+  sounds — decodes are bounded in normal operation.
+
 ## Dictation quality
 - **Phase 0 shipped 2026-06-18** — accuracy-gap groundwork (build the levers +
   the ruler, enable after data):

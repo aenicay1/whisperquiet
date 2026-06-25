@@ -257,7 +257,14 @@ class WhisperQuietApp(rumps.App):
         if self._recording.is_set():
             return
         if self._worker is not None and self._worker.is_alive():
-            return  # previous session still finishing; drop this press
+            # previous session is still finishing — SHOW that instead of silently
+            # dropping the press, so a slow finalize never looks like a dead app.
+            # (recorder.stop() is now time-bounded, so the worker can't hang on a
+            # wedged mic; it always terminates and the next press then works.)
+            self.overlay.show()
+            self.overlay.update("⏳ finishing previous dictation…")
+            threading.Timer(1.2, self.overlay.hide).start()
+            return
         self._recording.set()
         self.status_item.title = "Status: listening"
         try:

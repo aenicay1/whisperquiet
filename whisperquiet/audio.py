@@ -206,10 +206,19 @@ class MicRecorder:
         self._chunks: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._stream: sd.InputStream | None = None
+        # Only accept callback audio between start() and stop(). Guards against
+        # a stream we had to abandon (its close() hung on a wedged device) still
+        # firing its callback into a later recording's buffer.
+        self._accepting = False
+        # bumped on every open; each stream's callback captures its generation
+        # and ignores itself once superseded, so an abandoned stream can never
+        # write into a newer recording even if its callback keeps firing.
+        self._stream_gen = 0
 
     def start(self) -> None:
         with self._lock:
             self._chunks = []
+        self._accepting = False
         try:
             self._open_stream()
         except Exception:
@@ -221,14 +230,17 @@ class MicRecorder:
             sd._terminate()
             sd._initialize()
             self._open_stream()
+        self._accepting = True  # stream is live; accept callback audio
 
     def _open_stream(self) -> None:
+        self._stream_gen += 1
+        callback = self._make_callback(self._stream_gen)
         try:
             stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
-                callback=self._on_audio,
+                callback=callback,
             )
             stream.start()
             self._stream, self._rate = stream, SAMPLE_RATE
@@ -241,15 +253,25 @@ class MicRecorder:
                 samplerate=rate,
                 channels=1,
                 dtype="float32",
-                callback=self._on_audio,
+                callback=callback,
             )
             stream.start()
             self._stream, self._rate = stream, rate
             print(f"mic: using {rate}Hz ({info['name']})", flush=True)
 
-    def _on_audio(self, indata, frames, time_info, status) -> None:
-        with self._lock:
-            self._chunks.append(indata.copy())
+    def _make_callback(self, gen: int):
+        """Build the audio callback for one stream generation. It appends only
+        while accepting AND only if it is still the current stream — so an
+        abandoned stream's late callbacks can never pollute a newer recording.
+        The accepting/gen check is inside the lock with the append, so it is
+        atomic against stop()/start() flipping the flags (no torn check-then-act,
+        which matters under free-threaded Python)."""
+        def _callback(indata, frames, time_info, status) -> None:
+            with self._lock:
+                if not self._accepting or gen != self._stream_gen:
+                    return
+                self._chunks.append(indata.copy())
+        return _callback
 
     def snapshot(self) -> np.ndarray:
         """All audio captured so far, mono float32 at 16kHz. Safe while recording."""
@@ -257,7 +279,9 @@ class MicRecorder:
             if not self._chunks:
                 return np.zeros(0, dtype=np.float32)
             audio = np.concatenate(self._chunks)[:, 0]
-        rate = getattr(self, "_rate", SAMPLE_RATE)
+            # read _rate under the same lock so a concurrent start() can't swap
+            # in a different rate between the concat and the resample
+            rate = getattr(self, "_rate", SAMPLE_RATE)
         if rate != SAMPLE_RATE and audio.size:
             n_out = int(audio.size * SAMPLE_RATE / rate)
             audio = np.interp(
@@ -307,9 +331,32 @@ class MicRecorder:
             return np.zeros(0, dtype=np.float32)
         return np.concatenate(tail[::-1])[-window:]
 
-    def stop(self) -> np.ndarray:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+    def stop(self, close_timeout: float = 2.0) -> np.ndarray:
+        """Stop recording and return the captured audio.
+
+        PortAudio stop()/close() can block forever when the input device is in
+        a bad state (the AUHAL '-10851' wedge after a hot-swap). That used to
+        hang the dictation worker indefinitely, which silently bricked every
+        later push-to-talk. So close the stream on a watchdog thread and, if it
+        does not return within close_timeout, ABANDON it (leak the wedged stream
+        object) and return the audio we already captured. _accepting is cleared
+        first so the abandoned stream's callback can never pollute a later take.
+        """
+        self._accepting = False
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            done = threading.Event()
+
+            def _close() -> None:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
+                finally:
+                    done.set()
+
+            threading.Thread(target=_close, daemon=True).start()
+            if not done.wait(close_timeout):
+                print("mic stop timed out — abandoning wedged stream", flush=True)
         return self.snapshot()
