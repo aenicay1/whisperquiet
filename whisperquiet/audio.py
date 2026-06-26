@@ -216,6 +216,23 @@ class MicRecorder:
         self._stream_gen = 0
 
     def start(self) -> None:
+        """Open the mic and begin capturing. Synchronous, run-to-completion.
+
+        MUST be called OFF the main run loop — it runs on the dictation worker
+        thread, never the PTT event-tap callback. ``sd.InputStream(...).start()``
+        (and the device rescan retried below) can block for a long time, or
+        forever, on a device in the AUHAL '-10851' wedged state. On the run loop
+        that would freeze the keyboard tap and brick every later push-to-talk
+        press (the "hotkey stopped working" bug); on the worker thread it only
+        stalls the one in-flight dictation, leaving the hotkey responsive.
+
+        We deliberately do NOT bound this with a watchdog/abandon: abandoning an
+        in-flight PortAudio open is unsafe — a slow-but-successful open would
+        commit a stream nobody ever closes, and the rescan's process-global
+        ``sd._terminate()`` could tear down a concurrently-opening stream. The
+        caller's worker-alive gate guarantees only one open runs at a time, so
+        the open stays simple and single-threaded instead.
+        """
         with self._lock:
             self._chunks = []
         self._accepting = False
@@ -349,10 +366,7 @@ class MicRecorder:
 
             def _close() -> None:
                 try:
-                    stream.stop()
-                    stream.close()
-                except Exception:
-                    pass
+                    self._close_quietly(stream)
                 finally:
                     done.set()
 
@@ -360,3 +374,14 @@ class MicRecorder:
             if not done.wait(close_timeout):
                 print("mic stop timed out — abandoning wedged stream", flush=True)
         return self.snapshot()
+
+    @staticmethod
+    def _close_quietly(stream) -> None:
+        """Best-effort stop+close that never raises (used by stop()'s watchdog).
+        May itself block on a wedged device, so the caller runs it on a thread it
+        can abandon."""
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:
+            pass

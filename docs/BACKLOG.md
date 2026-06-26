@@ -10,6 +10,26 @@ Not in priority order within a section unless noted.
   "finishing previous dictation…" instead of silently dropping presses; stream
   callbacks are gated by accepting+generation so an abandoned stream can't
   pollute a later take.
+- ~~Wedged mic OPEN froze the run loop and bricked the hotkey~~ FIXED
+  2026-06-26 — observed in production: an EarPods hot-swap wedged CoreAudio
+  (AUHAL -10851); recorder.start() blocked on the open, and because it ran on
+  the PTT event-tap (main run loop) it froze the keyboard tap, so macOS kept
+  disabling the tap and the watchdog kept re-arming it (the endless
+  "PTT tap was disabled — re-enabled" loop = "hotkey stopped working"). FIX:
+  recorder.start() now runs on the dictation WORKER thread (app._stream_loop),
+  never the run-loop tap handler, so a blocking open stalls only that one
+  dictation and the hotkey stays live. NB: an earlier attempt that bounded
+  start() with a watchdog/abandon was scrapped after adversarial review —
+  abandoning an in-flight PortAudio open is unsafe (a slow-but-successful open
+  commits a stream nobody closes; the rescan's process-global sd._terminate()
+  can tear down a concurrent open → use-after-free). The single-threaded
+  worker-side open avoids all of that.
+- **KNOWN RESIDUAL: a truly hung mic OPEN soft-bricks dictation until restart.**
+  If sd.InputStream(...).start() blocks forever on a wedged device the worker
+  thread hangs (Python can't kill it), so later presses show "finishing previous
+  dictation…" and dictation stops until relaunch — BUT the hotkey/UI stay
+  responsive (no freeze). Same class as the hung-decode residual below; the real
+  fix is an out-of-process audio engine we can kill.
 - **KNOWN RESIDUAL: a truly hung MLX decode still needs a restart.** If a
   partial/finalize decode ever wedges the GPU, it holds `_tx_lock` forever, so
   the worker stays alive and new dictations block on the lock — no in-process

@@ -5,7 +5,9 @@ dictation worker (the bug that silently bricked all later push-to-talk presses).
 import time
 
 import numpy as np
+import pytest
 
+import whisperquiet.audio as audio_mod
 from whisperquiet.audio import MicRecorder
 
 
@@ -92,3 +94,66 @@ def test_stop_clean_close_returns_audio():
 def test_stop_with_no_stream_is_safe():
     r = MicRecorder()
     assert r.stop().size == 0  # no stream, no audio, no crash
+
+
+class _FakeStream:
+    def __init__(self):
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_start_opens_and_goes_live(monkeypatch):
+    # start() is synchronous and run-to-completion (it is called from the worker
+    # thread, never the run loop). A clean open commits the stream and goes live.
+    made = []
+
+    def fake_input_stream(**kw):
+        s = _FakeStream()
+        made.append(s)
+        return s
+
+    monkeypatch.setattr(audio_mod.sd, "InputStream", fake_input_stream)
+    r = MicRecorder()
+    r.start()
+    assert r._accepting is True
+    assert r._stream is made[0] and made[0].started
+
+
+def test_start_propagates_open_failure_so_worker_can_handle_it(monkeypatch):
+    # Both the 16k open and the native-rate fallback fail (on both the initial
+    # try and the rescan retry) -> start() RAISES rather than hangs, so the
+    # worker's except shows "mic failed" and bails. It must never go live.
+    def boom(**kw):
+        raise RuntimeError("device unavailable")
+
+    monkeypatch.setattr(audio_mod.sd, "InputStream", boom)
+    monkeypatch.setattr(
+        audio_mod.sd, "query_devices",
+        lambda kind=None: {"default_samplerate": 48000, "name": "Fake"},
+    )
+    monkeypatch.setattr(audio_mod.sd, "_terminate", lambda: None)
+    monkeypatch.setattr(audio_mod.sd, "_initialize", lambda: None)
+    r = MicRecorder()
+    with pytest.raises(RuntimeError):
+        r.start()
+    assert r._accepting is False  # never went live
+
+
+def test_close_quietly_swallows_errors():
+    # Shared teardown helper must never raise (stop()'s watchdog relies on it).
+    class Boom:
+        def stop(self):
+            raise RuntimeError("stop blew up")
+
+        def close(self):
+            raise RuntimeError("close blew up")
+
+    MicRecorder._close_quietly(Boom())  # no exception escapes

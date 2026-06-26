@@ -264,24 +264,19 @@ class WhisperQuietApp(rumps.App):
         if self._worker is not None and self._worker.is_alive():
             # previous session is still finishing — SHOW that instead of silently
             # dropping the press, so a slow finalize never looks like a dead app.
-            # (recorder.stop() is now time-bounded, so the worker can't hang on a
-            # wedged mic; it always terminates and the next press then works.)
             self.overlay.show()
             self.overlay.update("⏳ finishing previous dictation…")
             threading.Timer(1.2, self.overlay.hide).start()
             return
         self._recording.set()
         self.status_item.title = "Status: listening"
-        try:
-            self.recorder.start()
-        except Exception as exc:
-            print("mic failed to open:", exc, flush=True)
-            self._recording.clear()
-            self.overlay.show()
-            self.overlay.update("⚠️ mic failed — check input device")
-            threading.Timer(2.0, self.overlay.hide).start()
-            return
         self.indicator.show()  # notch "listening" pill is the only live cue
+        # IMPORTANT: do NOT open the mic here. This runs on the PTT event-tap
+        # (the main run loop); recorder.start() can block — even forever — on a
+        # device in the AUHAL '-10851' wedged state, which would freeze the tap
+        # and brick the hotkey (the "hotkey stopped working" bug). The worker
+        # opens the mic as its first step, so a wedged open stalls only that one
+        # dictation, never the run loop. This handler stays non-blocking.
         self._worker = threading.Thread(target=self._stream_loop, daemon=True)
         self._worker.start()
         threading.Thread(target=self._level_loop, daemon=True).start()
@@ -388,6 +383,22 @@ class WhisperQuietApp(rumps.App):
         cfg = self.config
         import numpy as np
         from .incremental import IncrementalTranscriber
+
+        # Open the mic HERE (on the worker), never in the PTT handler: a wedged
+        # device can make recorder.start() block, and on the run-loop tap thread
+        # that bricks the hotkey. On the worker it only stalls this dictation.
+        # On failure, surface it and bail without committing anything.
+        try:
+            self.recorder.start()
+        except Exception as exc:
+            print("mic failed to open:", exc, flush=True)
+            self._recording.clear()
+            self.indicator.hide()
+            self.overlay.show()
+            self.overlay.update("⚠️ mic failed — check input device")
+            threading.Timer(2.0, self.overlay.hide).start()
+            self._release_t = None  # nothing will commit; don't leave a stamp
+            return
 
         # Backend (whisper default, or parakeet if opted in); model_repo follows
         # the choice. Bound once per dictation so every decode below — partials,
