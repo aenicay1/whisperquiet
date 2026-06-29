@@ -1,14 +1,16 @@
-"""Floating streaming-text overlay.
+"""Notch status indicator — the app's single status surface.
 
-A non-activating NSPanel so the target app keeps keyboard focus — whisper
-hypothesis revisions happen here, never via synthetic backspace in someone
-else's text field (DESIGN.md decision #10). All AppKit work is marshalled to
-the main thread; public methods are safe to call from worker threads.
+A small frosted-glass pill top-center near the notch, shown as a non-activating
+NSPanel so the target app keeps keyboard focus. It is the ONLY status surface
+(there is no bottom modal): listening + a live audio spectrum on one side, and
+every other state — working/finalizing, a flag, a stuck mic, "no speech" — shown
+with a colored dot + short label on the left and a glyph on the right, so nothing
+ever fails silently. All AppKit work is marshalled to the
+main thread; public methods are safe to call from worker threads.
 
-Visuals: frosted-glass NSVisualEffectView panels (HUD material) with soft
-fade/rise transitions. Every animation path degrades to an instant
-show/hide/swap if the underlying AppKit API is unavailable — never crash
-over polish.
+Visuals: a frosted-glass NSVisualEffectView (HUD material) with soft fade
+transitions. Every animation path degrades to an instant show/hide/swap if the
+underlying AppKit API is unavailable — never crash over polish.
 """
 
 from __future__ import annotations
@@ -17,9 +19,6 @@ import AppKit
 import objc
 from PyObjCTools import AppHelper
 
-_WIDTH, _HEIGHT, _MARGIN_BOTTOM = 520, 96, 120
-_TAIL_CHARS = 165  # ~3 lines at 16pt; older text scrolls off the top
-_CORNER_RADIUS = 18.0
 _RISE_PX = 8.0
 _SHOW_DURATION = 0.15
 _HIDE_DURATION = 0.12
@@ -158,131 +157,6 @@ def _fade_out_panel(panel, on_done) -> None:
         on_done()
 
 
-def _crossfade_label(label, apply_text) -> None:
-    """Soften a text swap: dip the label to ~0.55 alpha, apply the new text,
-    then fade back to 1.0 (~120ms total). Degrades to an instant swap."""
-    try:
-
-        def fade_out(ctx):
-            ctx.setDuration_(_TEXT_FADE_HALF)
-            label.animator().setAlphaValue_(0.55)
-
-        def then_swap_and_recover():
-            apply_text()
-            try:
-
-                def fade_in(ctx):
-                    ctx.setDuration_(_TEXT_FADE_HALF)
-                    label.animator().setAlphaValue_(1.0)
-
-                AppKit.NSAnimationContext.runAnimationGroup_completionHandler_(
-                    fade_in, None
-                )
-            except Exception:
-                label.setAlphaValue_(1.0)
-
-        AppKit.NSAnimationContext.runAnimationGroup_completionHandler_(
-            fade_out, then_swap_and_recover
-        )
-    except Exception:
-        apply_text()
-        try:
-            label.setAlphaValue_(1.0)
-        except Exception:
-            pass
-
-
-def _body_font() -> AppKit.NSFont:
-    try:
-        return AppKit.NSFont.systemFontOfSize_weight_(
-            16, AppKit.NSFontWeightMedium
-        )
-    except Exception:
-        return AppKit.NSFont.systemFontOfSize_(16)
-
-
-class Overlay:
-    def __init__(self) -> None:
-        self._panel: AppKit.NSPanel | None = None
-        self._label: AppKit.NSTextField | None = None
-        self._last_text = ""
-        self._base_frame = None
-        # bumped on every show/hide so a stale fade-out completion never
-        # orders out a panel that show() has since brought back
-        self._gen = 0
-
-    # -- public, thread-safe ------------------------------------------------
-
-    def show(self) -> None:
-        AppHelper.callAfter(self._show_main)
-
-    def update(self, text: str) -> None:
-        AppHelper.callAfter(self._update_main, text)
-
-    def hide(self) -> None:
-        AppHelper.callAfter(self._hide_main)
-
-    # -- main thread only ---------------------------------------------------
-
-    def _ensure_panel(self) -> None:
-        if self._panel is not None:
-            return
-        screen = AppKit.NSScreen.mainScreen().visibleFrame()
-        rect = AppKit.NSMakeRect(
-            screen.origin.x + (screen.size.width - _WIDTH) / 2,
-            screen.origin.y + _MARGIN_BOTTOM,
-            _WIDTH,
-            _HEIGHT,
-        )
-        panel, content = _make_glass_panel(rect, _CORNER_RADIUS)
-
-        label = AppKit.NSTextField.wrappingLabelWithString_("")
-        label.setFrame_(AppKit.NSMakeRect(16, 8, _WIDTH - 32, _HEIGHT - 16))
-        label.setTextColor_(AppKit.NSColor.whiteColor())
-        label.setFont_(_body_font())
-        content.addSubview_(label)
-
-        self._panel, self._label, self._base_frame = panel, label, rect
-
-    def _show_main(self) -> None:
-        self._ensure_panel()
-        self._gen += 1  # cancels any in-flight fade-out's orderOut
-        self._last_text = ""
-        self._label.setStringValue_("…")
-        try:
-            self._label.setAlphaValue_(1.0)
-        except Exception:
-            pass
-        _fade_in_panel(self._panel, self._base_frame)
-
-    def _update_main(self, text: str) -> None:
-        if self._label is None or text == self._last_text:
-            return
-        self._last_text = text
-        shown = text or "…"
-        if len(shown) > _TAIL_CHARS:
-            # tail-anchored: always show the end of the utterance
-            cut = shown[-_TAIL_CHARS:]
-            cut = cut.split(" ", 1)[-1] if " " in cut[:30] else cut
-            shown = "…" + cut
-        label = self._label
-        _crossfade_label(label, lambda: label.setStringValue_(shown))
-
-    def _hide_main(self) -> None:
-        if self._panel is None:
-            return
-        self._gen += 1
-        gen = self._gen
-        panel = self._panel
-
-        def done() -> None:
-            # only orderOut if no show() arrived while we were fading
-            if gen == self._gen:
-                panel.orderOut_(None)
-
-        _fade_out_panel(panel, done)
-
-
 # -- frosted-glass spectrum view ---------------------------------------------
 
 # single teal accent — liquid glass, NOT a rainbow. Encode level by HEIGHT and
@@ -384,30 +258,65 @@ class _SpectrumView(AppKit.NSView):
 
 
 class NotchIndicator:
-    """Small 'listening' pill top-center near the notch with a live mic level,
-    so you can see the app is hearing you before any text streams in.
+    """The app's single status surface: a small pill top-center near the notch.
 
-    The mic level is shown as a frosted-glass audio spectrum (``set_spectrum``);
-    ``set_level`` remains as a single-bar fallback if the spectrum is never fed.
+    Left zone: a colored dot + short label. Right zone: EITHER the live audio
+    spectrum (while listening) OR a status glyph (working ⏳, flagged 🚩,
+    a warning ⚠️/🎙️/✅). Because there is no bottom modal, every state — a stuck
+    mic, a flag, "no speech" — shows here, never silently.
+
+    Built-in modes via the mode methods; ``notify(glyph, label)`` shows an
+    arbitrary one-off status. ``set_spectrum``/``set_level`` feed the listening
+    spectrum. All public methods marshal to the main thread.
     """
 
     _N_BANDS = 40
-    _W, _H = 240, 26
-    # spectrum / fallback-bar region: right of the "listening" label
+    _W, _H = 260, 26
+    _DOT_X = 12
+    _LABEL_X, _LABEL_W = 30, 176
+    _GLYPH_X, _GLYPH_W = 210, 36
     _SPEC_X, _SPEC_W = 100, 128
     _BAR_X, _BAR_MAX = 100, 128
 
+    # mode -> (dot color, left label, right glyph or None=show spectrum)
+    _MODES = {
+        "listening": ("red", "listening", None),
+        "working": ("gray", "working…", "⏳"),
+        "flagged": ("red", "flagged", "🚩"),
+    }
+    _DOT_COLORS = {
+        "red": "systemRedColor",
+        "orange": "systemOrangeColor",
+        "gray": "systemGrayColor",
+    }
+
     def __init__(self) -> None:
         self._panel: AppKit.NSPanel | None = None
-        self._bar: AppKit.NSView | None = None
+        self._dot = None
+        self._label = None
+        self._glyph = None
+        self._bar = None
         self._spectrum: _SpectrumView | None = None
         self._base_frame = None
         self._gen = 0
+        self._mode: str | None = None
 
     # -- public, thread-safe ------------------------------------------------
 
-    def show(self) -> None:
-        AppHelper.callAfter(self._show_main)
+    def show(self) -> None:  # back-compat alias: default to listening mode
+        AppHelper.callAfter(self._mode_main, "listening")
+
+    def listening(self) -> None:
+        AppHelper.callAfter(self._mode_main, "listening")
+
+    def working(self) -> None:
+        AppHelper.callAfter(self._mode_main, "working")
+
+    def flagged(self) -> None:
+        AppHelper.callAfter(self._mode_main, "flagged")
+
+    def notify(self, glyph: str, label: str) -> None:
+        AppHelper.callAfter(self._notify_main, glyph, label)
 
     def set_level(self, level: float) -> None:
         AppHelper.callAfter(self._level_main, float(level))
@@ -419,6 +328,12 @@ class NotchIndicator:
         AppHelper.callAfter(self._hide_main)
 
     # -- main thread only ---------------------------------------------------
+
+    def _ns_color(self, name: str):
+        getter = getattr(
+            AppKit.NSColor, self._DOT_COLORS.get(name, "systemRedColor")
+        )
+        return getter()
 
     def _ensure_panel(self) -> None:
         if self._panel is not None:
@@ -433,16 +348,22 @@ class NotchIndicator:
         panel, content = _make_glass_panel(rect, self._H / 2)
 
         dot = AppKit.NSTextField.labelWithString_("●")
-        dot.setFrame_(AppKit.NSMakeRect(12, 4, 14, 18))
+        dot.setFrame_(AppKit.NSMakeRect(self._DOT_X, 4, 14, 18))
         dot.setTextColor_(AppKit.NSColor.systemRedColor())
         dot.setFont_(AppKit.NSFont.systemFontOfSize_(11))
         content.addSubview_(dot)
 
-        text = AppKit.NSTextField.labelWithString_("listening")
-        text.setFrame_(AppKit.NSMakeRect(28, 4, 70, 18))
-        text.setTextColor_(AppKit.NSColor.whiteColor())
-        text.setFont_(AppKit.NSFont.systemFontOfSize_(12))
-        content.addSubview_(text)
+        label = AppKit.NSTextField.labelWithString_("listening")
+        label.setFrame_(AppKit.NSMakeRect(self._LABEL_X, 4, self._LABEL_W, 18))
+        label.setTextColor_(AppKit.NSColor.whiteColor())
+        label.setFont_(AppKit.NSFont.systemFontOfSize_(12))
+        content.addSubview_(label)
+
+        glyph = AppKit.NSTextField.labelWithString_("")
+        glyph.setFrame_(AppKit.NSMakeRect(self._GLYPH_X, 3, self._GLYPH_W, 20))
+        glyph.setFont_(AppKit.NSFont.systemFontOfSize_(14))
+        glyph.setHidden_(True)
+        content.addSubview_(glyph)
 
         bar = AppKit.NSView.alloc().initWithFrame_(
             AppKit.NSMakeRect(self._BAR_X, self._H / 2 - 3, 4, 6)
@@ -462,22 +383,74 @@ class NotchIndicator:
         except Exception:
             spectrum = None
 
-        self._panel, self._bar, self._spectrum = panel, bar, spectrum
+        self._panel, self._dot, self._label = panel, dot, label
+        self._glyph, self._bar, self._spectrum = glyph, bar, spectrum
         self._base_frame = rect
 
-    def _show_main(self) -> None:
+    def _apply(self, color: str, text: str, glyph: str | None, dim_dot: bool) -> None:
+        try:
+            self._dot.setHidden_(bool(dim_dot))
+            if not dim_dot:
+                self._dot.setTextColor_(self._ns_color(color))
+            self._label.setStringValue_(text)
+            if glyph is None:
+                self._glyph.setHidden_(True)
+                if self._spectrum is not None:
+                    self._spectrum.setHidden_(False)
+            else:
+                self._glyph.setStringValue_(glyph)
+                self._glyph.setHidden_(False)
+                if self._spectrum is not None:
+                    self._spectrum.setHidden_(True)
+                if self._bar is not None:
+                    self._bar.setHidden_(True)
+        except Exception:
+            pass
+
+    def _mode_main(self, mode: str) -> None:
         self._ensure_panel()
-        self._gen += 1
-        if self._spectrum is not None:
-            self._spectrum_main([0.0] * self._N_BANDS)
-        else:
-            self._level_main(0.0)
+        color, text, glyph = self._MODES.get(mode, self._MODES["listening"])
+        self._mode = mode
+        self._apply(color, text, glyph, dim_dot=(mode == "working"))
+        self._show_panel()
+        self._maybe_spin(mode)
+
+    def _notify_main(self, glyph: str, label: str) -> None:
+        self._ensure_panel()
+        self._mode = "notify"
+        self._apply("red", label, glyph, dim_dot=True)
+        self._show_panel()
+
+    def _show_panel(self) -> None:
+        self._gen += 1  # cancels any in-flight fade-out's orderOut + stale spin
         # fade only — no rise; the pill hugs the top edge of the screen
         _fade_in_panel(self._panel, self._base_frame, rise=0.0)
 
+    def _maybe_spin(self, mode: str) -> None:
+        # animate the hourglass by flipping ⏳/⌛ so it reads as "working".
+        # Guarded by the generation counter + current mode, so it stops the
+        # instant the mode changes or the panel hides. Degrades to a static ⏳.
+        if mode != "working":
+            return
+        gen = self._gen
+
+        def tick(done=False):
+            if gen != self._gen or self._mode != "working":
+                return
+            try:
+                self._glyph.setStringValue_("⌛" if done else "⏳")
+            except Exception:
+                return
+            AppHelper.callLater(0.6, tick, not done)
+
+        try:
+            AppHelper.callLater(0.6, tick, True)
+        except Exception:
+            pass  # static hourglass is fine
+
     def _level_main(self, level: float) -> None:
         # single-bar fallback: only used when set_spectrum is never called
-        if self._bar is None:
+        if self._bar is None or self._mode not in (None, "listening"):
             return
         try:
             self._bar.setHidden_(False)
@@ -490,8 +463,6 @@ class NotchIndicator:
 
     def _spectrum_main(self, bands: list[float]) -> None:
         if self._spectrum is None:
-            # no custom view available — fall back to the single bar using the
-            # loudest band so the indicator still moves
             try:
                 peak = max(bands) if bands else 0.0
             except Exception:
@@ -511,6 +482,7 @@ class NotchIndicator:
         self._gen += 1
         gen = self._gen
         panel = self._panel
+        self._mode = None
 
         def done() -> None:
             if gen == self._gen:

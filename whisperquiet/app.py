@@ -1,4 +1,4 @@
-"""Menu bar app: hold PTT → stream into overlay → commit on release."""
+"""Menu bar app: hold PTT → notch shows listening/working → commit on release."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .feedback import FeedbackLog
 from .settings_server import SettingsServer
 from .stats import SessionStats
 from .hotkey import PushToTalk
-from .overlay import NotchIndicator, Overlay
+from .overlay import NotchIndicator
 
 
 class WhisperQuietApp(rumps.App):
@@ -41,12 +41,15 @@ class WhisperQuietApp(rumps.App):
         # end-to-end commit latency (release -> text injected). None between
         # dictations so a stale value is never attributed to a later commit.
         self._release_t: float | None = None
+        # set once the mic is confirmed open for a take; a watchdog uses it to
+        # surface "mic stuck" if recorder.start() hangs on a wedged device
+        # instead of the notch sitting on "listening" with dead, never-moving bars.
+        self._mic_ready = threading.Event()
         self._last_words = 0
         self._edit_keys = 0
         self._edit_logged = True
         self._last_phys_mouse = 0.0
         self.recorder = MicRecorder()
-        self.overlay = Overlay()
         self.indicator = NotchIndicator()
         self._recording = threading.Event()
         self._worker: threading.Thread | None = None
@@ -233,9 +236,8 @@ class WhisperQuietApp(rumps.App):
         """User tapped the flag key right after something misbehaved."""
         self.feedback.log("flag", {"recent": self.stats.recent()})
         self.stats.record("flag")
-        self.overlay.show()
-        self.overlay.update("🚩 flagged")
-        threading.Timer(0.9, self.overlay.hide).start()
+        self.indicator.flagged()
+        threading.Timer(0.9, self.indicator.hide).start()
 
     def _physical_key(self) -> None:
         if time.monotonic() - self._last_commit_t < 8.0:
@@ -262,15 +264,14 @@ class WhisperQuietApp(rumps.App):
         if self._recording.is_set():
             return
         if self._worker is not None and self._worker.is_alive():
-            # previous session is still finishing — SHOW that instead of silently
-            # dropping the press, so a slow finalize never looks like a dead app.
-            self.overlay.show()
-            self.overlay.update("⏳ finishing previous dictation…")
-            threading.Timer(1.2, self.overlay.hide).start()
+            # previous session is still finalizing — reaffirm the honest "working"
+            # state in the notch instead of silently dropping the press (the
+            # worker hides it once the text lands).
+            self.indicator.working()
             return
         self._recording.set()
         self.status_item.title = "Status: listening"
-        self.indicator.show()  # notch "listening" pill is the only live cue
+        self.indicator.listening()  # bars appear at once; mic opens on the worker
         # IMPORTANT: do NOT open the mic here. This runs on the PTT event-tap
         # (the main run loop); recorder.start() can block — even forever — on a
         # device in the AUHAL '-10851' wedged state, which would freeze the tap
@@ -291,9 +292,10 @@ class WhisperQuietApp(rumps.App):
         if self._release_t is None:
             self._release_t = time.monotonic()
         self._recording.clear()
-        # instant feedback: UI drops now, final transcription finishes unseen
-        self.indicator.hide()
-        self.overlay.hide()
+        # show the honest "working" hourglass while the final transcription
+        # finalizes (the worker hides it once the text is injected) — never a
+        # silent gap between release and the text landing.
+        self.indicator.working()
 
     def _toggle_camera(self, item: rumps.MenuItem) -> None:
         if self._camera is not None and self._camera.active:
@@ -387,18 +389,30 @@ class WhisperQuietApp(rumps.App):
         # Open the mic HERE (on the worker), never in the PTT handler: a wedged
         # device can make recorder.start() block, and on the run-loop tap thread
         # that bricks the hotkey. On the worker it only stalls this dictation.
-        # On failure, surface it and bail without committing anything.
+        # A watchdog surfaces "mic stuck" if the open hangs, so a wedged device
+        # is never a silent dead-end; on a clean open we promote to "listening".
+        self._mic_ready.clear()
+
+        def _stuck_warn() -> None:
+            if not self._mic_ready.is_set() and self._recording.is_set():
+                print("mic open is slow/stuck — surfacing", flush=True)
+                self.indicator.notify("⚠️", "mic stuck")
+
+        stuck_timer = threading.Timer(4.0, _stuck_warn)
+        stuck_timer.start()
         try:
             self.recorder.start()
         except Exception as exc:
+            stuck_timer.cancel()
             print("mic failed to open:", exc, flush=True)
             self._recording.clear()
-            self.indicator.hide()
-            self.overlay.show()
-            self.overlay.update("⚠️ mic failed — check input device")
-            threading.Timer(2.0, self.overlay.hide).start()
+            self.indicator.notify("⚠️", "mic failed")
+            threading.Timer(2.5, self.indicator.hide).start()
             self._release_t = None  # nothing will commit; don't leave a stamp
             return
+        stuck_timer.cancel()
+        self._mic_ready.set()
+        self.indicator.listening()  # audio path is live — clears any "mic stuck" warning
 
         # Backend (whisper default, or parakeet if opted in); model_repo follows
         # the choice. Bound once per dictation so every decode below — partials,
@@ -493,10 +507,6 @@ class WhisperQuietApp(rumps.App):
                 "pair", {"raw": raw_final, "clean": final, "audio": audio_name}
             )
         print(f"final: {len(final or '')} chars", flush=True)
-        if not final and audio.size > 16000:
-            self.overlay.show()
-            self.overlay.update("…heard nothing — check mic/level bar")
-            threading.Timer(1.5, self.overlay.hide).start()
         if final:
             # end-to-end commit latency: PTT release -> first text injected.
             # Recorded BEFORE the inject so it excludes typing time; transcribe_ms
@@ -518,8 +528,15 @@ class WhisperQuietApp(rumps.App):
             self._last_words = len(final.split())
             self._edit_keys = 0
             self._edit_logged = False
+            self.indicator.hide()  # the "working" hourglass clears once text lands
         else:
             self._release_t = None  # nothing committed; don't keep a stale stamp
+            if audio.size > 16000:
+                # decoded but produced nothing — say so, never fail silently
+                self.indicator.notify("⚠️", "no speech")
+                threading.Timer(1.6, self.indicator.hide).start()
+            else:
+                self.indicator.hide()
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
 
     def _recording_wait(self, seconds: float) -> None:
