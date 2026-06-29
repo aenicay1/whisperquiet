@@ -30,6 +30,23 @@ Not in priority order within a section unless noted.
   dictation…" and dictation stops until relaunch — BUT the hotkey/UI stay
   responsive (no freeze). Same class as the hung-decode residual below; the real
   fix is an out-of-process audio engine we can kill.
+- **Native-rate mic open** SHIPPED 2026-06-28 (e084d9c) — open at the device's
+  native sample rate instead of forcing 16 kHz, since the rate renegotiation is
+  what trips the AUHAL -10851. Cuts wedge FREQUENCY; does not guarantee recovery.
+- ~~Whole-app auto-relaunch backstop (kill+reopen the .app on a detected wedge)~~
+  **REJECTED 2026-06-29 after adversarial review** (24 agents, 18 confirmed
+  findings, 3 high). Four fatal problems: (1) it barely fires — recovery was
+  gated on _recording still being set at the 8s mark, but the 4s "mic stuck"
+  notice makes the user release first, clearing _recording and disarming it, so
+  it no-ops in the common tap-and-release case; (2) cooldown defeated → relaunch
+  storm if CONFIG_DIR is unwritable (the persisted-timestamp brake silently
+  fails); (3) app vanishes entirely if `open` fails after os._exit (strictly
+  worse than the soft-brick); (4) false-positive force-kill of a slow-but-
+  successful open at the 8s boundary. A blunt whole-app relaunch tied to PTT
+  timing is the wrong tool. **The only safe auto-recovery is the out-of-process
+  audio engine** (kill+respawn just the audio child; supervisor in the always-
+  alive parent; heartbeat detection decoupled from PTT/_recording). That is the
+  next build — interim today is honest visibility ("mic stuck") + manual restart.
 - **KNOWN RESIDUAL: a truly hung MLX decode still needs a restart.** If a
   partial/finalize decode ever wedges the GPU, it holds `_tx_lock` forever, so
   the worker stays alive and new dictations block on the lock — no in-process
