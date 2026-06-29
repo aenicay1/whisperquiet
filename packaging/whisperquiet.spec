@@ -138,7 +138,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="WhisperQuiet.app",
-    icon=None,
+    icon=os.path.join(REPO, "packaging", "whisperquiet.icns"),
     bundle_identifier="com.yacine.whisperquiet",
     info_plist={
         "CFBundleName": "WhisperQuiet",

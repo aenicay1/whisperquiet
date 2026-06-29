@@ -75,6 +75,10 @@ class WhisperQuietApp(rumps.App):
         self.recorder = MicRecorder()
         self.indicator = NotchIndicator()
         self._recording = threading.Event()
+        # set once the whisper model is loaded (after the first-run download).
+        # The hotkey goes live before this, so a press while it's clear shows
+        # "loading model…" instead of dead keys or a worker stalled on a cold load.
+        self._model_ready = threading.Event()
         self._worker: threading.Thread | None = None
         # serialize every mlx_whisper decode: the keep-warm thread must never
         # run a decode concurrently with a real dictation decode (shared model
@@ -209,6 +213,47 @@ class WhisperQuietApp(rumps.App):
                 self._camera.recalibrate()  # drop stale saved thresholds
             self._toggle_camera(self.camera_item)
 
+    def _model_is_cached(self, model_repo: str) -> bool:
+        """True when the whisper model is already in the local HF cache, so the
+        warm-up is a few seconds rather than a multi-minute first-run download.
+        Used only to word the loading notice; best-effort (never raises)."""
+        try:
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(model_repo, local_files_only=True)
+            return True
+        except Exception:
+            return False
+
+    def _permission_alert_main(self, missing: list[str]) -> None:
+        """First-run permission guidance (main thread only — runs a modal alert).
+
+        Shows only while a grant is missing, and spells out the relaunch step that
+        macOS itself never mentions for Accessibility / Input Monitoring. Wrapped
+        so a UI hiccup can never take down warm-up."""
+        try:
+            bullets = "\n".join(f"   •  {m}" for m in missing)
+            resp = rumps.alert(
+                title="WhisperQuiet needs permission",
+                message=(
+                    "To work, WhisperQuiet still needs:\n\n"
+                    f"{bullets}\n\n"
+                    "Grant these in System Settings → Privacy & Security, then "
+                    "QUIT and reopen WhisperQuiet — macOS only applies them when "
+                    "the app launches."
+                ),
+                ok="Open System Settings",
+                cancel="Later",
+            )
+            if resp == 1:
+                import subprocess
+
+                subprocess.Popen(
+                    ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy"]
+                )
+        except Exception:
+            pass
+
     def _warm_up(self) -> None:
         import Quartz
         from ApplicationServices import (
@@ -220,25 +265,63 @@ class WhisperQuietApp(rumps.App):
         print("accessibility trusted:", trusted, flush=True)
         if not trusted:  # pops the system dialog with an Open Settings button
             AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+        input_mon_ok = True
         if hasattr(Quartz, "CGPreflightListenEventAccess"):
-            if not Quartz.CGPreflightListenEventAccess():
+            input_mon_ok = bool(Quartz.CGPreflightListenEventAccess())
+            if not input_mon_ok:
                 Quartz.CGRequestListenEventAccess()  # Input Monitoring prompt
         import AVFoundation as AV
         mic = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeAudio)
         print("mic status:", mic, "(3=authorized)", flush=True)
+        # First-run onboarding: if Accessibility / Input Monitoring are still
+        # missing, guide the user to System Settings AND tell them to relaunch —
+        # macOS only applies those two at launch, which nothing else surfaces, so
+        # users grant them and wonder why the hotkey is still dead. Mic is added
+        # only when explicitly denied (notDetermined=0 is handled by the live
+        # prompt just fired above; granting it needs no relaunch). Self-correcting:
+        # once everything is granted this never shows again.
+        missing = []
+        if not trusted:
+            missing.append("Accessibility — to type the text into the focused app")
+        if not input_mon_ok:
+            missing.append("Input Monitoring — for the push-to-talk hotkey")
+        if mic == 2:
+            missing.append("Microphone — to hear your speech")
         if mic == 0:
             AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
                 AV.AVMediaTypeAudio, lambda granted: print("mic granted:", granted, flush=True)
             )
+        # Install the PTT tap BEFORE the model load AND before the onboarding
+        # alert. callAfter is FIFO and posts to the DEFAULT run-loop mode, but
+        # rumps.alert's runModal spins a MODAL mode — so a tap-install enqueued
+        # AFTER the alert wouldn't run until the alert was dismissed. Enqueuing it
+        # first keeps the hotkey live even while the modal parks the main loop and
+        # through the (first-run, multi-minute) model load; a press before the
+        # model is ready shows "loading model…" (see _on_ptt_press).
+        self.ptt.start()
+        if missing:
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(self._permission_alert_main, missing)
         backend, model_repo = backends.get_backend(self.config)
+        # Make the load visible so the first run never looks frozen (fail loud):
+        # a persistent notch + a menu line that says the long wait is a one-time
+        # download, not a hang. Cached launches just flash "loading model…".
+        if self._model_is_cached(model_repo):
+            self.indicator.notify("⏳", "loading model…")
+            self.status_item.title = "Status: loading model…"
+        else:
+            self.indicator.notify("⏳", "downloading model…")
+            self.status_item.title = "Status: downloading model (first run, ~1.6 GB)…"
         backend.warm_up(model_repo)
+        self._model_ready.set()
+        self.indicator.hide()
         if self.config.rescore_enabled:
             # keep the polish model resident too, so the first dictation that
             # uses it isn't a multi-second cold load (never raises)
             from .rescore import RescoreConfig, warm_up as rescore_warm_up
             rescore_warm_up(RescoreConfig(enabled=True))
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
-        self.ptt.start()
         # keep the model resident: a tiny periodic decode every ~90s so the
         # first real dictation after idle isn't cold (mlx caches the model;
         # this keeps that cache warm without meaningful battery cost).
@@ -292,6 +375,18 @@ class WhisperQuietApp(rumps.App):
     def _on_ptt_press(self) -> None:
         print("PTT press", flush=True)
         if self._recording.is_set():
+            return
+        if not self._model_ready.is_set():
+            # hotkey is live during the first-run model download/load; say so
+            # rather than starting a worker that would stall on a cold decode.
+            self.indicator.notify("⏳", "loading model…")
+            # clear the notice shortly — but not if the model became ready
+            # mid-hold and a real dictation is now showing, so we never blank a
+            # live listening/working notch.
+            threading.Timer(
+                1.4,
+                lambda: None if self._recording.is_set() else self.indicator.hide(),
+            ).start()
             return
         if self._worker is not None and self._worker.is_alive():
             # previous session is still finalizing — reaffirm the honest "working"

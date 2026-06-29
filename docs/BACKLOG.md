@@ -169,14 +169,20 @@ Not in priority order within a section unless noted.
   allow-unsigned-executable-memory / disable-library-validation, no sandbox).
   Once the account exists: sign with the Developer ID, `xcrun notarytool submit`,
   `stapler staple`, then host the DMG + a download site.
-- First-run UX gaps before a true public v1: the ~1.6 GB model download shows only
-  a "loading model…" status (no progress/ETA — looks idle on a slow link) AND the
-  PTT hotkey is dead until the download finishes, because `_warm_up` calls
-  `self.ptt.start()` only after `backend.warm_up()` returns (app.py ~233). On a
-  slow link the first run looks frozen. Fix: surface hf download progress into the
-  status title and/or arm the tap before the download with a "still downloading"
-  guard on press. Also needs an app icon (generic now) + onboarding for the 3 TCC
-  grants (Mic / Accessibility / Input Monitoring) + relaunch.
+- **First-run UX — largely SHIPPED 2026-06-29.** (1) Hotkey is now live BEFORE the
+  model load (`ptt.start()` moved ahead of `warm_up`); a press while `_model_ready`
+  is clear shows "loading model…" instead of dead keys (gated in `_on_ptt_press`,
+  regression-tested in tests/test_model_loading_gate.py). (2) The first-run
+  download is now visible — a persistent notch + a menu line ("downloading model
+  (first run, ~1.6 GB)…" vs "loading model…", chosen by `_model_is_cached`) so it
+  never looks frozen. (3) App icon shipped (packaging/whisperquiet.icns, the 🤫
+  mark on an indigo squircle). (4) First-run permission onboarding: a one-time
+  modal that lists missing TCC grants and — crucially — tells the user to RELAUNCH
+  (macOS only applies Accessibility/Input-Monitoring at launch); self-correcting,
+  never shows once all granted.
+  REMAINING (nice-to-have): a real download PROGRESS % / bar (currently just an
+  indeterminate "downloading…"), and the icon is emoji-derived — fine for v1, a
+  custom mark later.
 - Swift/SwiftUI port (clean TCC identity, status item, lower idle cost).
 - Login-item + first-run onboarding checklist.
 - Lip-reading AV fusion — backlogged behind kill criterion (≥30% rel. WER
