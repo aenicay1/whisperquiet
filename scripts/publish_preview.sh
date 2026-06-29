@@ -104,7 +104,6 @@ else
     -R "$DIST_REPO" \
     --title "WhisperQuiet friends preview" \
     --notes-file "$NOTES" \
-    --prerelease \
     --latest
 fi
 
