@@ -252,29 +252,41 @@ class MicRecorder:
     def _open_stream(self) -> None:
         self._stream_gen += 1
         callback = self._make_callback(self._stream_gen)
+
+        # Open at the device's NATIVE sample rate, not a forced 16 kHz. Asking a
+        # 44.1/48 kHz device (EarPods, AirPods, most external mics) for 16 kHz
+        # makes CoreAudio renegotiate the stream format, and that negotiation is
+        # the path that trips the AUHAL '-10851' wedge after an input hot-swap.
+        # snapshot()/recent() resample to 16 kHz, so whisper still gets 16 kHz
+        # mono regardless of the rate we capture at.
+        rate, name = SAMPLE_RATE, "?"
         try:
-            stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                callback=callback,
-            )
-            stream.start()
-            self._stream, self._rate = stream, SAMPLE_RATE
-        except Exception:
-            # some devices (AirPods etc.) refuse 16k; open at native rate
-            # and resample in snapshot()
             info = sd.query_devices(kind="input")
-            rate = int(info["default_samplerate"])
+            rate = int(info["default_samplerate"]) or SAMPLE_RATE
+            name = info["name"]
+        except Exception:
+            pass  # no device info — fall through to the 16 kHz default
+
+        def _open(at_rate: int) -> None:
             stream = sd.InputStream(
-                samplerate=rate,
+                samplerate=at_rate,
                 channels=1,
                 dtype="float32",
                 callback=callback,
             )
             stream.start()
-            self._stream, self._rate = stream, rate
-            print(f"mic: using {rate}Hz ({info['name']})", flush=True)
+            self._stream, self._rate = stream, at_rate
+
+        try:
+            _open(rate)
+            if rate != SAMPLE_RATE:
+                print(f"mic: capturing {rate}Hz ({name}) → 16kHz", flush=True)
+        except Exception:
+            # last resort: the canonical 16 kHz (built-in mics accept it). If the
+            # native-rate open failed/blocked first, start()'s rescan precedes the
+            # retry that lands here.
+            _open(SAMPLE_RATE)
+            print("mic: fell back to 16kHz open", flush=True)
 
     def _make_callback(self, gen: int):
         """Build the audio callback for one stream generation. It appends only
@@ -326,17 +338,17 @@ class MicRecorder:
         return min(1.0, rms / 0.04)
 
     def recent(self, seconds: float = 0.05) -> np.ndarray:
-        """The last ``seconds`` of mono float32 audio from the tail.
+        """The last ``seconds`` of mono float32 audio, resampled to 16kHz.
 
-        Same cheap tail-walk as ``level()`` (no full concat); intended to feed
-        ``spectrum_bands`` for the live indicator. Returns fewer samples than
-        requested if the buffer is shorter, or an empty array if nothing has
-        been captured yet. Not resampled — at the native device rate if the mic
-        refused 16kHz; pass that rate to ``spectrum_bands`` if you need exact
-        frequency bins.
+        Cheap tail-walk (no full concat); feeds ``spectrum_bands`` for the live
+        indicator. Resampled to 16kHz so the band/frequency mapping is correct
+        no matter the device's native capture rate (now that we capture at the
+        device rate by default). Returns fewer samples than requested if the
+        buffer is shorter, or an empty array if nothing has been captured yet.
         """
-        window = max(1, int(SAMPLE_RATE * max(0.0, seconds)))
         with self._lock:
+            rate = getattr(self, "_rate", SAMPLE_RATE)
+            window = max(1, int(rate * max(0.0, seconds)))
             tail: list[np.ndarray] = []
             total = 0
             for chunk in reversed(self._chunks):
@@ -346,7 +358,15 @@ class MicRecorder:
                     break
         if not tail:
             return np.zeros(0, dtype=np.float32)
-        return np.concatenate(tail[::-1])[-window:]
+        samples = np.concatenate(tail[::-1])[-window:]
+        if rate != SAMPLE_RATE and samples.size:
+            n_out = max(1, int(samples.size * SAMPLE_RATE / rate))
+            samples = np.interp(
+                np.linspace(0, samples.size - 1, n_out),
+                np.arange(samples.size),
+                samples,
+            ).astype(np.float32)
+        return samples
 
     def stop(self, close_timeout: float = 2.0) -> np.ndarray:
         """Stop recording and return the captured audio.

@@ -147,6 +147,79 @@ def test_start_propagates_open_failure_so_worker_can_handle_it(monkeypatch):
     assert r._accepting is False  # never went live
 
 
+def test_open_stream_captures_at_native_rate(monkeypatch):
+    # Open at the device's native rate (not a forced 16k), since the 16k force
+    # is what triggers the AUHAL -10851 wedge on a 44.1/48k device.
+    opened = {}
+
+    class FakeStream:
+        def __init__(self, **kw):
+            opened["rate"] = kw.get("samplerate")
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        audio_mod.sd, "query_devices",
+        lambda kind=None: {"default_samplerate": 48000.0, "name": "EarPods"},
+    )
+    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: FakeStream(**kw))
+    r = MicRecorder()
+    r._open_stream()
+    assert opened["rate"] == 48000
+    assert r._rate == 48000
+
+
+def test_open_stream_falls_back_to_16k_when_native_open_fails(monkeypatch):
+    # If the native-rate open fails, fall back to the canonical 16k (built-in
+    # mics accept it) rather than leaving the recorder with no stream.
+    tried = []
+
+    class PickyStream:
+        def __init__(self, **kw):
+            rate = kw.get("samplerate")
+            tried.append(rate)
+            if rate != 16000:
+                raise RuntimeError("device refused native rate")
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        audio_mod.sd, "query_devices",
+        lambda kind=None: {"default_samplerate": 48000.0, "name": "X"},
+    )
+    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: PickyStream(**kw))
+    r = MicRecorder()
+    r._open_stream()
+    assert tried == [48000, 16000]  # native first, then the 16k last resort
+    assert r._rate == 16000
+
+
+def test_recent_resamples_native_rate_to_16k():
+    # recent() must hand spectrum_bands 16k-rate audio regardless of capture
+    # rate, so the frequency-band mapping stays correct.
+    r = MicRecorder()
+    r._accepting = True
+    r._stream_gen = 1
+    r._rate = 48000
+    _push(r, 2400)  # 0.05s at 48kHz
+    out = r.recent(0.05)
+    assert out.size == 800  # 2400 * 16000/48000 — resampled down to 16kHz
+
+
 def test_close_quietly_swallows_errors():
     # Shared teardown helper must never raise (stop()'s watchdog relies on it).
     class Boom:
