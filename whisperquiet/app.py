@@ -18,19 +18,42 @@ from .hotkey import PushToTalk
 from .overlay import NotchIndicator
 
 
+def _camera_deps_available() -> bool:
+    """True only when the optional camera stack (mediapipe + opencv) is present.
+
+    The public dictation build is frozen without these heavy deps, so the camera
+    feature is hidden there; a source checkout that installed them keeps it.
+    """
+    import importlib.util
+
+    return (
+        importlib.util.find_spec("mediapipe") is not None
+        and importlib.util.find_spec("cv2") is not None
+    )
+
+
 class WhisperQuietApp(rumps.App):
     def __init__(self) -> None:
         super().__init__("🤫", quit_button="Quit")
         self.config = config_mod.load()
         config_mod.save(self.config)  # write defaults on first run
         self.status_item = rumps.MenuItem("Status: loading model…")
-        self.camera_item = rumps.MenuItem(
-            "Camera Control (beta)", callback=self._toggle_camera
-        )
-        self.cursor_item = rumps.MenuItem(
-            "Head Cursor", callback=self._toggle_cursor
-        )
-        self.menu = [self.status_item, self.camera_item, self.cursor_item, None]
+        menu = [self.status_item]
+        # The public dictation build is frozen WITHOUT the camera stack
+        # (mediapipe/opencv), so hide its menu items there; a source checkout
+        # that installed those deps still gets the experimental camera surface.
+        self.camera_item = None
+        self.cursor_item = None
+        if _camera_deps_available():
+            self.camera_item = rumps.MenuItem(
+                "Camera Control (beta)", callback=self._toggle_camera
+            )
+            self.cursor_item = rumps.MenuItem(
+                "Head Cursor", callback=self._toggle_cursor
+            )
+            menu += [self.camera_item, self.cursor_item]
+        menu.append(None)
+        self.menu = menu
         self._camera = None
 
         self.stats = SessionStats()
@@ -154,19 +177,26 @@ class WhisperQuietApp(rumps.App):
         calibrate = config_mod.CONFIG_DIR / "trigger-calibrate"
         cursor = config_mod.CONFIG_DIR / "trigger-cursor"
         quit_file = config_mod.CONFIG_DIR / "trigger-quit"
+        # The frozen dictation build ships without the camera stack, so its
+        # Info.plist has no NSCameraUsageDescription. Acting on a stray
+        # trigger-camera there would reach AVCaptureDevice.requestAccess, which
+        # macOS TCC hard-kills (SIGABRT) when no usage string is present — so the
+        # camera trigger paths must be inert exactly when the menu items are.
+        camera_enabled = self.camera_item is not None
         while True:
             if quit_file.exists():
                 quit_file.unlink(missing_ok=True)
                 AppHelper.callAfter(rumps.quit_application)
-            if camera.exists():
-                camera.unlink(missing_ok=True)
-                AppHelper.callAfter(self._toggle_camera, self.camera_item)
-            if calibrate.exists():
-                calibrate.unlink(missing_ok=True)
-                AppHelper.callAfter(self._recalibrate)
-            if cursor.exists():
-                cursor.unlink(missing_ok=True)
-                AppHelper.callAfter(self._toggle_cursor, self.cursor_item)
+            if camera_enabled:
+                if camera.exists():
+                    camera.unlink(missing_ok=True)
+                    AppHelper.callAfter(self._toggle_camera, self.camera_item)
+                if calibrate.exists():
+                    calibrate.unlink(missing_ok=True)
+                    AppHelper.callAfter(self._recalibrate)
+                if cursor.exists():
+                    cursor.unlink(missing_ok=True)
+                    AppHelper.callAfter(self._toggle_cursor, self.cursor_item)
             time.sleep(0.5)
 
     def _recalibrate(self) -> None:
@@ -305,7 +335,13 @@ class WhisperQuietApp(rumps.App):
         if not self._ensure_camera_permission(item):
             return
         # deferred import: mediapipe/opencv load only if the mode is used
-        from .vision.controller import CameraController
+        try:
+            from .vision.controller import CameraController
+        except ImportError:
+            # public dictation build is frozen without the camera stack
+            self.indicator.notify("⚠️", "camera unavailable")
+            threading.Timer(1.6, self.indicator.hide).start()
+            return
 
         if self._camera is None:
             self._camera = CameraController(

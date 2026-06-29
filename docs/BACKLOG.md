@@ -148,6 +148,35 @@ Not in priority order within a section unless noted.
   RSI/a11y audience; no new gestures.
 
 ## Platform / launch
+- **Self-contained freeze SHIPPED 2026-06-29** — `dist/WhisperQuiet.app` is now a
+  real distributable bundle (PyInstaller, `scripts/build_app.sh` +
+  `packaging/whisperquiet.spec`), not the dev PYTHONPATH wrapper (make_app.sh).
+  Runs detached from the repo/.venv. 388 MB, arm64-only, dictation-only (camera
+  stack excluded → its menu items + trigger files are gated off when mediapipe/cv2
+  are absent). Smoke-validated: launches once, warms the mlx model + runs a Metal
+  decode, installs the PTT tap, no fork-bomb. Key freeze fixes baked in:
+  `multiprocessing.freeze_support()` in the entry (spawn would otherwise re-run
+  the app → fork bomb); `pyobjc-framework-ApplicationServices` is a required dep
+  (AXIsProcessTrusted; not pulled transitively); `_sounddevice_data` (PortAudio)
+  + cffi force-collected (lazy import in an except branch the graph can't see).
+  py2app was tried first and abandoned — mlx is a PEP-420 namespace package with
+  a compiled ext + sibling Metal lib that py2app's legacy imp finder can't handle.
+- **NEXT GATE — public download needs Developer ID + notarization** (blocked on a
+  $99/yr Apple Developer account). The bundle is currently ad-hoc signed: runs
+  locally, but Gatekeeper warns/blocks downloaders ("Apple cannot check it for
+  malicious software"). build_app.sh already has the inside-out hardened-runtime
+  signing path (WQ_SIGN_ID=...) + packaging/entitlements.plist (allow-jit /
+  allow-unsigned-executable-memory / disable-library-validation, no sandbox).
+  Once the account exists: sign with the Developer ID, `xcrun notarytool submit`,
+  `stapler staple`, then host the DMG + a download site.
+- First-run UX gaps before a true public v1: the ~1.6 GB model download shows only
+  a "loading model…" status (no progress/ETA — looks idle on a slow link) AND the
+  PTT hotkey is dead until the download finishes, because `_warm_up` calls
+  `self.ptt.start()` only after `backend.warm_up()` returns (app.py ~233). On a
+  slow link the first run looks frozen. Fix: surface hf download progress into the
+  status title and/or arm the tap before the download with a "still downloading"
+  guard on press. Also needs an app icon (generic now) + onboarding for the 3 TCC
+  grants (Mic / Accessibility / Input Monitoring) + relaunch.
 - Swift/SwiftUI port (clean TCC identity, status item, lower idle cost).
 - Login-item + first-run onboarding checklist.
 - Lip-reading AV fusion — backlogged behind kill criterion (≥30% rel. WER

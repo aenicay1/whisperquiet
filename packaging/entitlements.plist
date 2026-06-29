@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened-runtime entitlements for a frozen Python + native-ML app.
+         Required so Apple notarization passes and the app still runs:
+         - numba/llvmlite JIT-compile machine code at runtime           -> allow-jit
+         - that generated code lives in writable+executable pages        -> allow-unsigned-executable-memory
+         - the bundle loads pip-wheel dylibs (mlx Metal lib, PortAudio,
+           llvmlite) not signed by our Developer ID                      -> disable-library-validation
+         NOTE: deliberately NOT sandboxed. WhisperQuiet needs a global key
+         tap (PTT) + keystroke injection + Accessibility, which the App
+         Sandbox forbids — this is why it ships as a notarized direct
+         download, not via the Mac App Store. Microphone access is gated by
+         TCC + NSMicrophoneUsageDescription, not by an entitlement here. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
