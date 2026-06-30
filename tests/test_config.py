@@ -31,6 +31,9 @@ def test_save_load_roundtrip(tmp_config):
 
 def test_new_flag_defaults_off():
     assert Config().vad_gate_enabled is False
+    assert Config().mlx_cache_limit_mb == 256
+    assert Config().mlx_memory_limit_mb == 0
+    assert Config().mlx_clear_cache_after_decode is True
 
 
 def test_save_leaves_no_temp_file(tmp_config):

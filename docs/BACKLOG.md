@@ -148,6 +148,14 @@ Not in priority order within a section unless noted.
   RSI/a11y audience; no new gestures.
 
 ## Platform / launch
+- **MLX memory + storage controls SHIPPED 2026-06-29** — the app now caps MLX's
+  allocator cache (`mlx_cache_limit_mb`, default 256), clears reusable cache
+  after warm-up/dictation while keeping active model weights resident, and logs
+  `mlx_active_mb` / `mlx_cache_mb` / `mlx_peak_mb` / `mlx_reclaimed_mb` into the
+  dogfood scorecard. Real Metal probe: active model memory stayed at ~1543 MB,
+  cache cleared from 257 MB to 0 MB, peak was ~2084 MB. Raw audio retention is
+  bounded by default (`audio_retention_mb=512`, `audio_retention_days=30`), and
+  `scripts/cache.py status` separates app data from Hugging Face model caches.
 - **Self-contained freeze SHIPPED 2026-06-29** — `dist/WhisperQuiet.app` is now a
   real distributable bundle (PyInstaller, `scripts/build_app.sh` +
   `packaging/whisperquiet.spec`), not the dev PYTHONPATH wrapper (make_app.sh).

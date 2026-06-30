@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Dogfood scorecard: today's stats + feedback against the DESIGN.md success bar.
 
 Usage: report.py [stats.jsonl] [feedback.jsonl]
@@ -11,6 +11,10 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from whisperquiet.feedback import FEEDBACK_PATH
 from whisperquiet.stats import STATS_PATH
@@ -78,6 +82,18 @@ def render(stats_path: Path, feedback_path: Path, day: str | None = None) -> str
         e["n"] for e in stats_events
         if e.get("kind") == "transcribe_ms" and isinstance(e.get("n"), int)
     ]
+    memory_values = {
+        kind: [
+            e["n"] for e in stats_events
+            if e.get("kind") == kind and isinstance(e.get("n"), int)
+        ]
+        for kind in (
+            "mlx_active_mb",
+            "mlx_cache_mb",
+            "mlx_peak_mb",
+            "mlx_reclaimed_mb",
+        )
+    }
 
     dictations = totals.get("dictation", 0)
     words = totals.get("words", 0)
@@ -125,12 +141,26 @@ def render(stats_path: Path, feedback_path: Path, day: str | None = None) -> str
         f"  transcribe p50    {tx_p50:6.0f} ms  (decode share of commit)",
         f"  samples           {len(commit_latencies):6d}",
         "",
+        "memory (MLX / Metal)",
+        f"  active latest     {_latest(memory_values['mlx_active_mb']):>6} MB",
+        f"  cache latest      {_latest(memory_values['mlx_cache_mb']):>6} MB",
+        f"  peak max          {_max_or_na(memory_values['mlx_peak_mb']):>6} MB",
+        f"  cache reclaimed   {sum(memory_values['mlx_reclaimed_mb']):6d} MB",
+        "",
         "targets (DESIGN.md success bar)",
         f"  commit p50                      {commit_p50:6.0f}  target <1000ms  {latency_verdict}",
         f"  flags/hour (false-click proxy)  {flag_rate:6.2f}  target <1/hour  {flag_verdict}",
         f"  trackpad_touches/hour           {touch_rate:6.2f}  target <5/hour  {touch_verdict}",
     ]
     return "\n".join(lines)
+
+
+def _latest(values: list[int]) -> str:
+    return str(values[-1]) if values else "n/a"
+
+
+def _max_or_na(values: list[int]) -> str:
+    return str(max(values)) if values else "n/a"
 
 
 if __name__ == "__main__":

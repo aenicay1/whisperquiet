@@ -60,10 +60,13 @@ open ~/Applications/WhisperQuiet.app
 |---|---|
 | **Dictate** | hold **right Option**, whisper, release — text lands in the focused app |
 | Add a vocabulary term | `scripts/vocab.py add "EBITDA" "Circleback"` (biases the decoder) |
+| Check memory/cache footprint | `scripts/cache.py status` |
+| Dogfood scorecard | `scripts/report.py` |
 | Quit (clears any stuck panel) | `…/trigger-quit` |
 
 Config: `~/Library/Application Support/whisperquiet/config.json`
-(PTT key, whisper model, streaming interval, injection mode, vocabulary).
+(PTT key, whisper model, streaming interval, injection mode, MLX memory caps,
+audio retention, vocabulary).
 
 ### Experimental: camera control
 
