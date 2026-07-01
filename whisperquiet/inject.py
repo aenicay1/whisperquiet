@@ -8,6 +8,7 @@ Both require the Accessibility permission.
 
 from __future__ import annotations
 
+import ctypes
 import time
 
 import AppKit
@@ -15,6 +16,52 @@ import Quartz
 
 _CHUNK = 20  # CGEventKeyboardSetUnicodeString caps around 20 UTF-16 units
 SYNTHETIC_TAG = 0x57510001  # marks our events so the feedback tap ignores them
+
+_carbon = None  # lazily-loaded Carbon.framework handle, see _secure_input_enabled
+
+
+def _secure_input_enabled() -> bool:
+    """True while a Secure Input field (e.g. a password box) has focus
+    anywhere on the system. macOS blocks synthetic keystrokes AND paste while
+    this is on — CGEventPost drops the event with no error — so injecting
+    here would look like a successful dictation while typing nothing.
+
+    IsSecureEventInputEnabled() is a plain C symbol in Carbon.framework; it is
+    not bridged by PyObjC's Quartz/ApplicationServices modules, so it is
+    loaded directly via ctypes. Best-effort: if the framework can't be loaded
+    or called, treat secure input as NOT active rather than blocking every
+    dictation over a broken check.
+    """
+    global _carbon
+    try:
+        if _carbon is None:
+            _carbon = ctypes.CDLL(
+                "/System/Library/Frameworks/Carbon.framework/Carbon"
+            )
+            _carbon.IsSecureEventInputEnabled.restype = ctypes.c_bool
+        return bool(_carbon.IsSecureEventInputEnabled())
+    except Exception:
+        return False
+
+
+def can_inject() -> tuple[bool, str | None]:
+    """Pre-inject guard for the commit path (app.py's _stream_loop).
+
+    CGEventPost silently drops synthetic keystrokes when the Accessibility
+    permission is missing, and macOS blocks them outright while Secure Input
+    is active — in both cases nothing is typed and CGEventPost raises
+    nothing, so a caller that skips this check would report a successful
+    dictation while the focused app received no text. Returns
+    ``(True, None)`` when it is safe to inject, else ``(False, reason)`` with
+    a short human-readable reason to show on the notch.
+    """
+    from ApplicationServices import AXIsProcessTrusted
+
+    if not AXIsProcessTrusted():
+        return False, "can't type — grant Accessibility in System Settings, then relaunch"
+    if _secure_input_enabled():
+        return False, "secure input field active — text not typed"
+    return True, None
 
 
 def _post(event) -> None:

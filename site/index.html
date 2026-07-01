@@ -9,11 +9,11 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="WhisperQuiet">
 <meta property="og:description" content="Local Mac dictation without an account, subscription, or cloud audio pipeline.">
-<meta property="og:image" content="og.png">
+<meta property="og:image" content="https://aenicay1.github.io/whisperquiet-dist/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="WhisperQuiet">
 <meta name="twitter:description" content="Local Mac dictation without an account, subscription, or cloud audio pipeline.">
-<meta name="twitter:image" content="og.png">
+<meta name="twitter:image" content="https://aenicay1.github.io/whisperquiet-dist/og.png">
 
 <link rel="icon" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
@@ -141,10 +141,11 @@
   h1 {
     margin: 0;
     max-width: 9ch;
-    font-size: 7.2rem;
+    font-size: clamp(2.1rem, 7vw + 0.9rem, 7.2rem);
     line-height: .88;
     letter-spacing: 0;
     font-weight: 760;
+    overflow-wrap: anywhere;
   }
   .thesis {
     margin: 26px 0 0;
@@ -212,6 +213,12 @@
     font-family: "SF Mono", "Geist Mono", ui-monospace, Menlo, Consolas, monospace;
     font-size: .84rem;
     font-weight: 650;
+  }
+  .fine-print {
+    margin: 14px 0 0;
+    max-width: 780px;
+    color: var(--soft);
+    font-size: .88rem;
   }
   main {
     position: relative;
@@ -404,7 +411,6 @@
   }
 
   @media (max-width: 920px) {
-    h1 { font-size: 5rem; }
     .thesis { font-size: 1.65rem; }
     .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .section-head,
@@ -444,7 +450,6 @@
       height: 340px;
       opacity: .08;
     }
-    h1 { font-size: 3.55rem; }
     h2 { font-size: 2.25rem; }
     .thesis { font-size: 1.38rem; }
     .lede { font-size: 1rem; }
@@ -500,7 +505,7 @@
   </nav>
 
   <header class="hero">
-    <div class="hero-copy reveal">
+    <div class="hero-copy">
       <p class="eyebrow">friends preview / apple silicon</p>
       <h1>WhisperQuiet</h1>
       <p class="thesis">Private Mac dictation, without the cloud meter.</p>
@@ -513,15 +518,16 @@
         <span><strong>Platform</strong>Apple Silicon</span>
         <span><strong>macOS</strong>13.5 or newer</span>
         <span><strong>Download</strong>about 145 MB</span>
-        <span><strong>Status</strong>unsigned preview</span>
+        <span><strong>Status</strong>unnotarized preview</span>
       </div>
+      <p class="fine-print">First launch also pulls the Whisper model, a one-time ~1.6 GB. After that it runs offline.</p>
     </div>
   </header>
 </div>
 
 <main id="main">
   <section id="local">
-    <div class="wrap reveal">
+    <div class="wrap">
       <div class="section-head">
         <h2>The point is local.</h2>
         <p>WhisperFlow-style tools proved people want fast dictation everywhere. The annoying part is paying a monthly cloud bill for something a modern Mac can already run privately.</p>
@@ -544,11 +550,12 @@
           </ul>
         </article>
       </div>
+      <p class="fine-print">By default WhisperQuiet keeps each recording's audio (capped at 512 MB / 30 days) and transcripts on-device to improve accuracy over time. Nothing leaves your Mac, and you can turn either off in config.</p>
     </div>
   </section>
 
   <section>
-    <div class="wrap reveal">
+    <div class="wrap">
       <div class="section-head">
         <h2>Built for actual writing.</h2>
         <p>This is not a meeting bot or a recorder. It is a small menu-bar app for turning spoken thoughts into text wherever your cursor already is.</p>
@@ -579,7 +586,7 @@
   </section>
 
   <section>
-    <div class="wrap reveal">
+    <div class="wrap">
       <div class="section-head">
         <h2>What happens when you dictate.</h2>
         <p>The app keeps the workflow intentionally boring. Press a key, capture audio, transcribe locally, clean the text, type it into the active app.</p>
@@ -595,22 +602,23 @@
   </section>
 
   <section id="install">
-    <div class="wrap install reveal">
+    <div class="wrap install">
       <div>
         <h2>Opening the preview.</h2>
         <p class="lede">This build is ad-hoc signed, not notarized. macOS will be dramatic the first time. That is expected for now.</p>
       </div>
       <ol class="steps">
         <li><b>01</b><span>Download and unzip <strong>WhisperQuiet.zip</strong>, then drag <strong>WhisperQuiet</strong> into Applications.</span></li>
-        <li><b>02</b><span>Right-click the app, choose <kbd>Open</kbd>, then choose <kbd>Open</kbd> again.</span></li>
-        <li><b>03</b><span>Grant Microphone, Accessibility, and Input Monitoring. Quit and reopen once after granting permissions.</span></li>
-        <li><b>04</b><span>Hold right Option, speak, release. If something breaks, that feedback is useful.</span></li>
+        <li><b>02</b><span><strong>macOS 15 (Sequoia) or newer:</strong> open the app once, macOS will block it, then go to <strong>System Settings → Privacy &amp; Security</strong>, scroll down to the "WhisperQuiet was blocked" notice, click <kbd>Open Anyway</kbd>, and confirm (you may be asked to authenticate). Open the app again after that.</span></li>
+        <li><b>03</b><span><strong>macOS 13–14:</strong> right-click the app, choose <kbd>Open</kbd>, then choose <kbd>Open</kbd> again.</span></li>
+        <li><b>04</b><span>Grant Microphone, Accessibility, and Input Monitoring. Quit and reopen once after granting permissions.</span></li>
+        <li><b>05</b><span>Hold right Option, speak, release. If something breaks, that feedback is useful.</span></li>
       </ol>
     </div>
   </section>
 
   <section>
-    <div class="wrap final reveal">
+    <div class="wrap final">
       <div>
         <h2>Try it where you actually work.</h2>
         <p>No tracking, no cookies, no account. Just an early local dictation build that needs honest usage.</p>

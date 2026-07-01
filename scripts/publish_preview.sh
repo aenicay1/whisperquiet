@@ -87,7 +87,11 @@ Friends preview for WhisperQuiet.
 Install:
 1. Download \`WhisperQuiet.zip\`.
 2. Unzip it and drag \`WhisperQuiet.app\` into Applications.
-3. Right-click the app and choose Open for the first launch.
+3. macOS 15 (Sequoia) or newer: open the app once, macOS will block it, then go to
+   System Settings -> Privacy & Security, scroll down to the "WhisperQuiet was blocked"
+   notice, click Open Anyway, and confirm (you may be asked to authenticate). Open the
+   app again after that.
+   macOS 13-14: right-click the app, choose Open, then choose Open again.
 4. Grant Microphone, Accessibility, and Input Monitoring, then quit and reopen once.
 
 SHA-256:

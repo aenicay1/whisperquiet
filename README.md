@@ -18,6 +18,11 @@ into any app. But it's a paid subscription and your speech is processed in the
 cloud. whisperquiet is that same fast push-to-talk dictation running entirely
 on-device against a local Whisper model — free, private, and offline-capable.
 
+By default, whisperquiet also keeps each dictation's audio (WAV, capped at
+512MB / 30 days) and raw→cleaned transcript pairs on-device, to improve
+accuracy over time. This stays local like everything else and can be turned
+off via `keep_audio` / `keep_transcripts` in config.
+
 ## What it does today
 
 - **Push-to-talk dictation** — hold **right Option**, speak or whisper, release;
