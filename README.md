@@ -18,6 +18,11 @@ into any app. But it's a paid subscription and your speech is processed in the
 cloud. whisperquiet is that same fast push-to-talk dictation running entirely
 on-device against a local Whisper model — free, private, and offline-capable.
 
+By default, whisperquiet also keeps each dictation's audio (WAV, capped at
+512MB / 30 days) and raw→cleaned transcript pairs on-device, to improve
+accuracy over time. This stays local like everything else and can be turned
+off via `keep_audio` / `keep_transcripts` in config.
+
 ## What it does today
 
 - **Push-to-talk dictation** — hold **right Option**, speak or whisper, release;
@@ -60,10 +65,13 @@ open ~/Applications/WhisperQuiet.app
 |---|---|
 | **Dictate** | hold **right Option**, whisper, release — text lands in the focused app |
 | Add a vocabulary term | `scripts/vocab.py add "EBITDA" "Circleback"` (biases the decoder) |
+| Check memory/cache footprint | `scripts/cache.py status` |
+| Dogfood scorecard | `scripts/report.py` |
 | Quit (clears any stuck panel) | `…/trigger-quit` |
 
 Config: `~/Library/Application Support/whisperquiet/config.json`
-(PTT key, whisper model, streaming interval, injection mode, vocabulary).
+(PTT key, whisper model, streaming interval, injection mode, MLX memory caps,
+audio retention, vocabulary).
 
 ### Experimental: camera control
 

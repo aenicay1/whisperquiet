@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import threading
 import time
+import traceback
 
 import rumps
 
 from . import config as config_mod
-from . import backends, inject, vad
+from . import backends, inject, mlx_runtime, vad
 from .audio import MicRecorder
 from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
@@ -33,6 +34,13 @@ def _camera_deps_available() -> bool:
 
 
 class WhisperQuietApp(rumps.App):
+    # shown on the notch + status menu when the model download/load gives up
+    # permanently after retries (see _load_model_with_retries / _warm_up).
+    _MODEL_LOAD_ERROR = (
+        "⚠️ model download failed — check connection/disk space, then quit "
+        "and reopen to retry"
+    )
+
     def __init__(self) -> None:
         super().__init__("🤫", quit_button="Quit")
         self.config = config_mod.load()
@@ -79,10 +87,15 @@ class WhisperQuietApp(rumps.App):
         # The hotkey goes live before this, so a press while it's clear shows
         # "loading model…" instead of dead keys or a worker stalled on a cold load.
         self._model_ready = threading.Event()
+        # set (to a short, human-readable reason) if _warm_up gives up on the
+        # model download/load after retries; _on_ptt_press checks this so a
+        # press after a permanent failure restates the real error instead of
+        # the misleading "loading model…" (which would otherwise show forever
+        # — see _load_model_with_retries).
+        self._model_load_error: str | None = None
         self._worker: threading.Thread | None = None
-        # serialize every mlx_whisper decode: the keep-warm thread must never
-        # run a decode concurrently with a real dictation decode (shared model
-        # arrays / default mlx stream are not safe under concurrent eval).
+        # serialize every backend decode: shared model arrays / the default MLX
+        # stream are not safe under concurrent eval.
         self._tx_lock = threading.Lock()
 
         self.ptt = PushToTalk(
@@ -240,7 +253,9 @@ class WhisperQuietApp(rumps.App):
                     f"{bullets}\n\n"
                     "Grant these in System Settings → Privacy & Security, then "
                     "QUIT and reopen WhisperQuiet — macOS only applies them when "
-                    "the app launches."
+                    "the app launches.\n\n"
+                    "Dictation audio and transcripts are kept privately on this "
+                    "Mac (to help improve accuracy) and can be disabled in config."
                 ),
                 ok="Open System Settings",
                 cancel="Later",
@@ -313,35 +328,96 @@ class WhisperQuietApp(rumps.App):
         else:
             self.indicator.notify("⏳", "downloading model…")
             self.status_item.title = "Status: downloading model (first run, ~1.6 GB)…"
-        backend.warm_up(model_repo)
+        mlx_runtime.configure(
+            cache_limit_mb=self.config.mlx_cache_limit_mb,
+            memory_limit_mb=self.config.mlx_memory_limit_mb,
+        )
+        if not self._load_model_with_retries(backend, model_repo):
+            return  # permanent failure already surfaced; _model_ready stays clear
+        self._reclaim_mlx_memory("after warm-up")
         self._model_ready.set()
         self.indicator.hide()
         if self.config.rescore_enabled:
             # keep the polish model resident too, so the first dictation that
-            # uses it isn't a multi-second cold load (never raises)
-            from .rescore import RescoreConfig, warm_up as rescore_warm_up
-            rescore_warm_up(RescoreConfig(enabled=True))
+            # uses it isn't a multi-second cold load. rescore_warm_up() is
+            # itself best-effort and never raises, but the import above it
+            # could (e.g. a broken mlx_lm install) — wrapped so that can never
+            # take down a main model that DID load, which would otherwise
+            # strand the app on "downloading model…" despite being usable.
+            try:
+                from .rescore import RescoreConfig, warm_up as rescore_warm_up
+                rescore_warm_up(RescoreConfig(enabled=True))
+            except Exception:
+                print("rescore warm-up import/call failed (non-fatal):", flush=True)
+                traceback.print_exc()
         self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
-        # keep the model resident: a tiny periodic decode every ~90s so the
-        # first real dictation after idle isn't cold (mlx caches the model;
-        # this keeps that cache warm without meaningful battery cost).
-        threading.Thread(target=self._keep_warm, daemon=True).start()
 
-    def _keep_warm(self) -> None:
-        import numpy as np
-        while True:
-            time.sleep(90)
-            # hold the decode lock so we can't overlap a dictation; re-check
-            # _recording UNDER the lock to close the check-then-act race (a
-            # press could land between the check and the decode otherwise).
-            with self._tx_lock:
-                if self._recording.is_set():
-                    continue
-                try:
-                    backend, model_repo = backends.get_backend(self.config)
-                    backend.transcribe(np.zeros(1600, dtype=np.float32), model_repo)
-                except Exception:
-                    pass
+    def _load_model_with_retries(self, backend, model_repo: str, attempts: int = 3) -> bool:
+        """Run ``backend.warm_up`` with a couple of retries before giving up.
+
+        What this guards against: the first-run download is a ~1.6 GB
+        HuggingFace fetch with no exception handling; a ConnectionError,
+        HfHubHTTPError, or OSError ("no space left") would kill this daemon
+        thread silently, _model_ready would never be set, and the notch would
+        sit on "downloading model…" forever with no way out short of force-
+        quitting. Retries give a flaky connection a couple of short-backoff
+        chances; on final failure the traceback is logged and a persistent,
+        human-readable error replaces the spinner on both the notch and the
+        status menu — and _model_load_error makes sure a later PTT press
+        restates it instead of the (by-then-false) "loading model…" line.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                backend.warm_up(model_repo)
+                return True
+            except Exception as exc:
+                last_exc = exc
+                print(
+                    f"model warm-up failed (attempt {attempt}/{attempts}):",
+                    exc,
+                    flush=True,
+                )
+                traceback.print_exc()
+                if attempt < attempts:
+                    time.sleep(2.0 * attempt)  # short backoff: 2s, then 4s
+        print(
+            "model warm-up: giving up after",
+            attempts,
+            "attempts:",
+            last_exc,
+            flush=True,
+        )
+        self._model_load_error = self._MODEL_LOAD_ERROR
+        self.indicator.notify("⚠️", self._MODEL_LOAD_ERROR)
+        self.status_item.title = f"Status: {self._MODEL_LOAD_ERROR}"
+        return False
+
+    def _reclaim_mlx_memory(self, label: str) -> None:
+        """Record MLX counters and release reusable allocator cache."""
+        if not self.config.mlx_clear_cache_after_decode:
+            snap = mlx_runtime.snapshot()
+            if snap is not None:
+                self._record_mlx_snapshot(snap)
+            return
+        result = mlx_runtime.reclaim()
+        if result is None:
+            return
+        self._record_mlx_snapshot(result.after)
+        self.stats.record("mlx_reclaimed_mb", result.reclaimed_mb)
+        print(
+            "mlx memory"
+            f" {label}: active={result.after.active_mb}MB"
+            f" cache={result.after.cache_mb}MB"
+            f" peak={result.after.peak_mb}MB"
+            f" reclaimed={result.reclaimed_mb}MB",
+            flush=True,
+        )
+
+    def _record_mlx_snapshot(self, snap: mlx_runtime.MemorySnapshot) -> None:
+        self.stats.record("mlx_active_mb", snap.active_mb)
+        self.stats.record("mlx_cache_mb", snap.cache_mb)
+        self.stats.record("mlx_peak_mb", snap.peak_mb)
 
     # -- dogfood feedback (called from the event tap, main thread) ----------
 
@@ -377,6 +453,12 @@ class WhisperQuietApp(rumps.App):
         if self._recording.is_set():
             return
         if not self._model_ready.is_set():
+            if self._model_load_error:
+                # the download/load gave up permanently (see _warm_up) — keep
+                # restating the real error instead of "loading model…", which
+                # would otherwise look like it's about to finish forever.
+                self.indicator.notify("⚠️", self._model_load_error)
+                return
             # hotkey is live during the first-run model download/load; say so
             # rather than starting a worker that would stall on a cold decode.
             self.indicator.notify("⏳", "loading model…")
@@ -584,6 +666,7 @@ class WhisperQuietApp(rumps.App):
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)
         decode_t0 = time.monotonic()
+        decode_failed = False
         if rms < 2e-4:
             final = last_partial  # near-silence: don't let whisper hallucinate
         elif use_incremental:
@@ -591,15 +674,33 @@ class WhisperQuietApp(rumps.App):
                 final = inc.finalize(audio)  # only the unfinalized tail re-runs
             except Exception as exc:
                 print("incremental finalize failed, falling back:", exc, flush=True)
+                try:
+                    with self._tx_lock:
+                        final = backend.transcribe_long(
+                            audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
+                        )
+                except Exception:
+                    # both the incremental finalize AND the whole-buffer
+                    # fallback raised. Unwrapped, this would kill the daemon
+                    # worker here, leaving "Status: finishing…" and the notch
+                    # "working…" stuck forever — log and recover instead.
+                    traceback.print_exc()
+                    decode_failed = True
+        else:
+            try:
                 with self._tx_lock:
                     final = backend.transcribe_long(
                         audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
                     )
-        else:
-            with self._tx_lock:
-                final = backend.transcribe_long(
-                    audio, model_repo, cfg.language, vocabulary=cfg.vocabulary
-                )
+            except Exception:
+                traceback.print_exc()
+                decode_failed = True
+        if decode_failed:
+            self.indicator.notify("⚠️", "transcription failed")
+            threading.Timer(2.0, self.indicator.hide).start()
+            self._release_t = None  # nothing will commit; don't leave a stale stamp
+            self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
+            return
         transcribe_ms = int((time.monotonic() - decode_t0) * 1000)
         # optional hard speech-presence gate (default off): never commit text
         # decoded from silence or steady tonal noise. Conservative by design —
@@ -620,6 +721,23 @@ class WhisperQuietApp(rumps.App):
                     w.setsampwidth(2)
                     w.setframerate(16000)
                     w.writeframes((audio * 32767).astype(np.int16).tobytes())
+                from .retention import MIB, prune_audio_dir
+
+                pruned = prune_audio_dir(
+                    adir,
+                    max_mb=cfg.audio_retention_mb,
+                    max_days=cfg.audio_retention_days,
+                )
+                if pruned.deleted_count:
+                    self.stats.record("audio_pruned_files", pruned.deleted_count)
+                    self.stats.record("audio_pruned_mb", int(round(pruned.deleted_bytes / MIB)))
+                    print(
+                        "audio retention:"
+                        f" deleted={pruned.deleted_count}"
+                        f" freed={int(round(pruned.deleted_bytes / MIB))}MB"
+                        f" remaining={int(round(pruned.remaining_bytes / MIB))}MB",
+                        flush=True,
+                    )
             except Exception:
                 audio_name = None
         raw_final = final
@@ -633,33 +751,47 @@ class WhisperQuietApp(rumps.App):
                 final,
                 RescoreConfig(enabled=True, context_hint=" ".join(cfg.vocabulary)),
             )
+        self._reclaim_mlx_memory("after dictation")
         if final and cfg.keep_transcripts and (raw_final != final or audio_name):
             self.transcripts.log(
                 "pair", {"raw": raw_final, "clean": final, "audio": audio_name}
             )
         print(f"final: {len(final or '')} chars", flush=True)
         if final:
-            # end-to-end commit latency: PTT release -> first text injected.
-            # Recorded BEFORE the inject so it excludes typing time; transcribe_ms
-            # is the decode share of it. A report script reads the raw JSONL for
-            # p50/p95. Both are recorded only for COMMITTED dictations: a gated
-            # or empty result is not a commit, so it correctly never enters the
-            # latency distribution. release_t is consumed once so it can't bleed
-            # into a later camera/jaw-triggered dictation that has no PTT release.
-            release_t, self._release_t = self._release_t, None
-            if release_t is not None:
-                self.stats.record(
-                    "commit_latency_ms", int((time.monotonic() - release_t) * 1000)
-                )
-            self.stats.record("transcribe_ms", transcribe_ms)
-            inject.type_text(final, cfg.inject_mode)
-            self.stats.record("dictation")
-            self.stats.record("words", len(final.split()))
-            self._last_commit_t = time.monotonic()
-            self._last_words = len(final.split())
-            self._edit_keys = 0
-            self._edit_logged = False
-            self.indicator.hide()  # the "working" hourglass clears once text lands
+            # Pre-inject guard: CGEventPost silently
+            # drops synthetic keystrokes when Accessibility trust is missing,
+            # and macOS blocks them outright while Secure Input (a password
+            # field) has focus — neither case raises, so without this check
+            # the app would report a successful dictation while nothing was
+            # typed. Skip the inject and say so instead of a false success.
+            can_inject, block_reason = inject.can_inject()
+            if not can_inject:
+                print("inject blocked:", block_reason, flush=True)
+                self.indicator.notify("⚠️", block_reason)
+                threading.Timer(3.0, self.indicator.hide).start()
+                self._release_t = None  # nothing committed; don't keep a stale stamp
+            else:
+                # end-to-end commit latency: PTT release -> first text injected.
+                # Recorded BEFORE the inject so it excludes typing time; transcribe_ms
+                # is the decode share of it. A report script reads the raw JSONL for
+                # p50/p95. Both are recorded only for COMMITTED dictations: a gated
+                # or empty result is not a commit, so it correctly never enters the
+                # latency distribution. release_t is consumed once so it can't bleed
+                # into a later camera/jaw-triggered dictation that has no PTT release.
+                release_t, self._release_t = self._release_t, None
+                if release_t is not None:
+                    self.stats.record(
+                        "commit_latency_ms", int((time.monotonic() - release_t) * 1000)
+                    )
+                self.stats.record("transcribe_ms", transcribe_ms)
+                inject.type_text(final, cfg.inject_mode)
+                self.stats.record("dictation")
+                self.stats.record("words", len(final.split()))
+                self._last_commit_t = time.monotonic()
+                self._last_words = len(final.split())
+                self._edit_keys = 0
+                self._edit_logged = False
+                self.indicator.hide()  # the "working" hourglass clears once text lands
         else:
             self._release_t = None  # nothing committed; don't keep a stale stamp
             if audio.size > 16000:

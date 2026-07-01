@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>whisperquiet — training playground</title>
+<title>whisperquiet - training playground</title>
 <style>
   :root {
     --bg: #07090a;
@@ -336,23 +336,460 @@
   .sessrow .head .when { color: var(--txt-dim); }
   .sessrow .mets { color: var(--txt-dim); line-height: 1.7; }
   .sessrow .mets b { color: var(--txt); font-weight: normal; }
+
+  /* ---------- redesign layer ---------- */
+  :root {
+    --bg: #080b0d;
+    --bg2: #0c1113;
+    --panel: #12191c;
+    --panel2: #182226;
+    --panel3: #0f1517;
+    --line: #263336;
+    --line-strong: #354548;
+    --teal: #69d8ce;
+    --teal-dim: #3f928d;
+    --green: #7ed98b;
+    --yellow: #e8bb5b;
+    --red: #e8756f;
+    --txt: #e4eceb;
+    --txt-dim: #91a19f;
+    --txt-faint: #617170;
+    --mono: "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --radius: 18px;
+    --radius-sm: 12px;
+    --shadow: 0 24px 70px rgba(0, 0, 0, .34);
+  }
+
+  html, body { min-height: 100%; }
+  body {
+    background:
+      radial-gradient(circle at 16% -10%, rgba(105, 216, 206, .14), transparent 28rem),
+      radial-gradient(circle at 84% 12%, rgba(126, 217, 139, .08), transparent 30rem),
+      linear-gradient(135deg, #080b0d 0%, #0b1012 58%, #060808 100%);
+    color: var(--txt);
+    letter-spacing: 0;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 30;
+    opacity: .13;
+    background-image:
+      linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(to bottom, black, transparent 74%);
+  }
+
+  #app {
+    background: transparent;
+    isolation: isolate;
+  }
+
+  #rail {
+    width: 282px;
+    min-width: 282px;
+    padding: 18px 14px 14px;
+    gap: 10px;
+    background:
+      linear-gradient(180deg, rgba(18, 25, 28, .96), rgba(9, 13, 15, .98)),
+      var(--bg2);
+    border-right: 1px solid rgba(105, 216, 206, .16);
+    box-shadow: 18px 0 50px rgba(0, 0, 0, .22);
+  }
+  #rail .brand {
+    color: var(--txt);
+    font-family: var(--sans);
+    font-size: 20px;
+    font-weight: 720;
+    line-height: 1;
+    letter-spacing: 0;
+    padding: 4px 10px 18px;
+    text-transform: lowercase;
+  }
+  #rail .brand small {
+    margin-top: 8px;
+    color: var(--txt-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.45;
+    letter-spacing: .04em;
+    text-transform: none;
+  }
+  .railsec {
+    padding: 16px 10px 3px;
+    color: var(--txt-faint);
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+  .railbtn {
+    min-height: 66px;
+    padding: 13px 14px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.035), transparent),
+      rgba(18, 25, 28, .86);
+    border: 1px solid rgba(145, 161, 159, .16);
+    border-radius: var(--radius-sm);
+    color: var(--txt);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 680;
+    line-height: 1.15;
+    letter-spacing: 0;
+    transition: transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .railbtn small {
+    color: var(--txt-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.35;
+    letter-spacing: .01em;
+  }
+  .railbtn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(105, 216, 206, .42);
+    background: rgba(24, 34, 38, .95);
+  }
+  .railbtn:active { transform: translateY(1px); }
+  .railbtn:focus-visible,
+  .exitbtn:focus-visible,
+  .bigbtn:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 3px;
+  }
+  .railbtn.active {
+    border-color: rgba(105, 216, 206, .85);
+    color: var(--teal);
+    box-shadow: inset 3px 0 0 var(--teal), 0 16px 32px rgba(0,0,0,.22);
+  }
+
+  #stage { background: transparent; }
+  #drillbar {
+    min-height: 66px;
+    padding: 12px 22px;
+    gap: 16px;
+    background: rgba(8, 11, 13, .72);
+    border-bottom: 1px solid rgba(105, 216, 206, .14);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  #drillbar .title {
+    color: var(--teal);
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 740;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  #drillbar .stat {
+    color: var(--txt-dim);
+    font-size: 12px;
+    letter-spacing: 0;
+    white-space: normal;
+  }
+  .exitbtn {
+    background: rgba(18, 25, 28, .88);
+    border-color: rgba(145, 161, 159, .18);
+    border-radius: 999px;
+    color: var(--txt-dim);
+    min-height: 42px;
+    padding: 0 17px;
+    transition: transform .16s ease, border-color .16s ease, color .16s ease;
+  }
+  .exitbtn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(105, 216, 206, .55);
+    color: var(--txt);
+  }
+
+  #arena {
+    background:
+      linear-gradient(90deg, rgba(105,216,206,.035) 1px, transparent 1px),
+      linear-gradient(rgba(105,216,206,.035) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .center-wrap { padding: clamp(18px, 4vw, 46px); }
+  .card,
+  .setgroup,
+  .sessrow,
+  .refbox,
+  #dictin,
+  .scroller {
+    border-color: rgba(145, 161, 159, .18);
+    box-shadow: var(--shadow);
+  }
+  .card,
+  .setgroup,
+  .sessrow,
+  .refbox {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018)),
+      rgba(18, 25, 28, .93);
+    border-radius: var(--radius);
+  }
+  .card {
+    max-width: 760px;
+    padding: clamp(24px, 4vw, 42px);
+  }
+  .card h2,
+  .setgroup h2,
+  .refbox .label {
+    color: var(--teal);
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+  .card .row {
+    border-bottom-color: rgba(145, 161, 159, .14);
+    padding: 9px 0;
+  }
+  .hint { color: var(--txt-dim); letter-spacing: .02em; }
+  .bigbtn {
+    border-radius: 999px;
+    background: var(--teal);
+    border-color: var(--teal);
+    color: #071011;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 760;
+    letter-spacing: 0;
+    min-height: 52px;
+    padding: 0 24px;
+    transition: transform .16s ease, filter .16s ease, background .16s ease, color .16s ease, border-color .16s ease;
+  }
+  .bigbtn:hover { filter: brightness(1.06); }
+  .bigbtn:active { transform: translateY(1px) scale(.99); }
+  .bigbtn.subtle {
+    background: transparent;
+    border-color: rgba(145, 161, 159, .22);
+    color: var(--txt-dim);
+  }
+  .bigbtn.subtle:hover {
+    border-color: rgba(105, 216, 206, .5);
+    color: var(--txt);
+  }
+
+  .menu-card {
+    max-width: 980px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, .72fr);
+    gap: clamp(18px, 4vw, 34px);
+    align-items: stretch;
+  }
+  .menu-title {
+    margin: 0;
+    max-width: 12ch;
+    color: var(--txt);
+    font-size: clamp(42px, 8vw, 86px);
+    line-height: .9;
+    letter-spacing: -.04em;
+    font-weight: 780;
+  }
+  .menu-copy {
+    margin-top: 20px;
+    max-width: 56ch;
+    color: var(--txt-dim);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+  .signal-panel {
+    border: 1px solid rgba(105,216,206,.18);
+    border-radius: var(--radius);
+    background: rgba(8, 11, 13, .42);
+    padding: 18px;
+    display: grid;
+    gap: 12px;
+  }
+  .signal-row {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,.035);
+  }
+  .signal-row b {
+    color: var(--teal);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 520;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .signal-row span {
+    color: var(--txt);
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .menu-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 26px;
+  }
+
+  .setwrap,
+  .sesswrap {
+    align-items: stretch;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  .setgroup { max-width: none; }
+  .sdesc {
+    color: var(--txt-dim);
+    font-size: 12px;
+  }
+  .setrow {
+    gap: 16px;
+    border-bottom-color: rgba(145, 161, 159, .14);
+  }
+  .setrow input[type=number],
+  #dictin {
+    background: rgba(8, 11, 13, .72);
+    border-color: rgba(105, 216, 206, .32);
+  }
+
+  #ticker {
+    height: 42px;
+    min-height: 42px;
+    background: rgba(3, 5, 6, .94);
+    border-top-color: rgba(105, 216, 206, .14);
+    color: var(--txt-dim);
+  }
+  #ticker .tklabel {
+    color: var(--teal);
+    letter-spacing: .14em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: .01ms !important;
+    }
+  }
+
+  @media (max-width: 820px) {
+    html, body { height: auto; overflow: auto; }
+    body { min-height: 100dvh; }
+    #app {
+      min-height: calc(100dvh - 42px);
+      flex-direction: column;
+    }
+    #rail {
+      width: 100%;
+      min-width: 0;
+      max-height: none;
+      border-right: 0;
+      border-bottom: 1px solid rgba(105, 216, 206, .16);
+      padding: 14px;
+      overflow: visible;
+      box-shadow: 0 16px 44px rgba(0,0,0,.22);
+    }
+    #rail .brand {
+      padding: 0 4px 10px;
+      font-size: 18px;
+    }
+    .railsec { display: none; }
+    .railbtn {
+      min-height: 58px;
+      padding: 11px 12px;
+      font-size: 13px;
+    }
+    .railbtn.session { margin-top: 0; }
+    #rail {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+    }
+    #rail .brand {
+      grid-column: 1 / -1;
+    }
+    #stage {
+      min-height: 640px;
+      overflow: visible;
+    }
+    #drillbar {
+      min-height: auto;
+      align-items: flex-start;
+      padding: 12px 14px;
+      flex-wrap: wrap;
+    }
+    #drillbar .spacer { display: none; }
+    #drillbar .title { width: 100%; }
+    .exitbtn {
+      min-height: 38px;
+      padding: 0 14px;
+    }
+    #arena {
+      min-height: 560px;
+      overflow: auto;
+    }
+    .center-wrap {
+      position: relative;
+      min-height: 560px;
+    }
+    .menu-card {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .menu-title {
+      max-width: 10ch;
+      font-size: clamp(40px, 14vw, 62px);
+    }
+    .signal-row {
+      grid-template-columns: 1fr;
+      gap: 5px;
+    }
+    .setwrap,
+    .sesswrap {
+      position: relative;
+      padding: 16px;
+    }
+    .setrow {
+      align-items: stretch;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .setrow .slabel,
+    .setrow .sval,
+    .setrow .sstatus,
+    .setrow input[type=range],
+    .setrow input[type=number] {
+      width: 100%;
+      min-width: 0;
+      text-align: left;
+    }
+    .scrollwrap,
+    .target,
+    .dragsq,
+    .dropzone {
+      touch-action: none;
+    }
+  }
 </style>
 </head>
 <body>
 
 <div id="app">
   <aside id="rail">
-    <div class="brand">WHISPERQUIET<small>TRAINING PLAYGROUND<br>voice-first · face-assist</small></div>
-    <div class="railsec">CORE</div>
-    <button class="railbtn" data-drill="dictation">1 · DICTATION WER<small>whisper accuracy · cleanup layer</small></button>
-    <button class="railbtn" data-drill="target">2 · TARGET CLICK<small>left-wink accuracy &amp; speed</small></button>
-    <button class="railbtn" data-drill="double">3 · DOUBLE CLICK<small>double-left-wink timing</small></button>
-    <button class="railbtn" data-drill="scroll">4 · SCROLL BAND<small>brow-raise / pucker precision</small></button>
-    <button class="railbtn" data-drill="gesture">5 · GESTURE REACTION<small>threshold-tuning goldmine</small></button>
-    <div class="railsec">EXPERIMENTAL</div>
-    <button class="railbtn" data-drill="drag">6 · DRAG &amp; DROP<small>open-mouth hold control</small></button>
-    <button class="railbtn" data-drill="settings">SETTINGS ⚙<small>live app tuning · 127.0.0.1:8377</small></button>
-    <button class="railbtn session" data-drill="session">SESSION<small>aggregate stats · export JSON</small></button>
+    <div class="brand">whisperquiet<small>voice calibration<br>private local dictation</small></div>
+    <div class="railsec">voice</div>
+    <button class="railbtn" data-drill="dictation">Dictation quality<small>WER, cleanup and tail loss</small></button>
+    <button class="railbtn" data-drill="target">Target click<small>left wink speed and misses</small></button>
+    <button class="railbtn" data-drill="double">Double click<small>double-wink timing</small></button>
+    <button class="railbtn" data-drill="scroll">Scroll band<small>brow and pucker precision</small></button>
+    <button class="railbtn" data-drill="gesture">Gesture reaction<small>threshold tuning</small></button>
+    <div class="railsec">control</div>
+    <button class="railbtn" data-drill="drag">Drag and drop<small>open-mouth hold control</small></button>
+    <button class="railbtn" data-drill="settings">Settings<small>live tuning on 127.0.0.1:8377</small></button>
+    <button class="railbtn session" data-drill="session">Session<small>aggregate stats and JSON export</small></button>
   </aside>
 
   <main id="stage">
@@ -360,7 +797,7 @@
       <span class="title" id="bar-title">MENU</span>
       <span class="stat" id="bar-stats"></span>
       <span class="spacer"></span>
-      <button class="exitbtn" id="bar-exit">ESC · MENU</button>
+      <button class="exitbtn" id="bar-exit">ESC / MENU</button>
     </div>
     <div id="arena"></div>
   </main>
@@ -385,8 +822,8 @@ var esc = function (s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 };
-var fmtMs = function (ms) { return ms == null ? '—' : (ms / 1000).toFixed(2) + 's'; };
-var fmtPct = function (x) { return x == null ? '—' : Math.round(x * 100) + '%'; };
+var fmtMs = function (ms) { return ms == null ? '-' : (ms / 1000).toFixed(2) + 's'; };
+var fmtPct = function (x) { return x == null ? '-' : Math.round(x * 100) + '%'; };
 var avg = function (arr) { return arr.length ? arr.reduce(function (a, b) { return a + b; }, 0) / arr.length : null; };
 
 function lsGet(key, fallback) {
@@ -419,7 +856,7 @@ function tick(label) {
   if (tkEvents.length > 8) tkEvents.length = 8;
   var html = '';
   for (var i = 0; i < tkEvents.length; i++) {
-    html += '<span class="ev">' + esc(tkEvents[i]) + (i < tkEvents.length - 1 ? ' · ' : '') + '</span>';
+    html += '<span class="ev">' + esc(tkEvents[i]) + (i < tkEvents.length - 1 ? ' / ' : '') + '</span>';
   }
   tkFeed.innerHTML = html;
 }
@@ -441,25 +878,38 @@ function goMenu() {
   active = null;
   mode = 'menu';
   highlightRail(null);
-  setBar('MENU', 'pick a drill — every button is wink-sized');
+  setBar('Menu', 'pick a drill, then run it with normal clicks, scrolls or keys');
   clearArena();
   var div = document.createElement('div');
   div.className = 'center-wrap';
   div.innerHTML =
-    '<div class="card">' +
-      '<h2>HANDS-FREE TRAINING RANGE</h2>' +
-      '<div style="font-size:14px;line-height:1.8;color:var(--txt-dim)">' +
-        'This page only listens to ordinary clicks, scrolls and keys — exactly what ' +
-        'whisperquiet injects. Pick a drill on the left (left-wink to click it).<br><br>' +
-        '<span style="color:var(--txt)">left wink</span> = left click · ' +
-        '<span style="color:var(--txt)">right wink</span> = right click · ' +
-        '<span style="color:var(--txt)">brow raise / pucker</span> = scroll · ' +
-        '<span style="color:var(--txt)">open mouth</span> = drag · ' +
-        '<span style="color:var(--txt)">nod</span> = Enter · ' +
-        '<span style="color:var(--txt)">head shake</span> = Escape (returns here — by design).' +
+    '<div class="card menu-card">' +
+      '<div>' +
+        '<h2>Calibration range</h2>' +
+        '<h1 class="menu-title">Tune the signal.</h1>' +
+        '<p class="menu-copy">' +
+          'Run short drills against the same click, scroll and key events that whisperquiet injects. ' +
+          'Keep dictation first, then tune face assist only where it is reliable.' +
+        '</p>' +
+        '<div class="menu-actions">' +
+          '<button class="bigbtn" data-menu-start="dictation">Start dictation</button>' +
+          '<button class="bigbtn subtle" data-menu-start="settings">Open settings</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="signal-panel" aria-label="Control mapping">' +
+        '<div class="signal-row"><b>Speak</b><span>Hold right Option, talk, release. Text lands in the focused app.</span></div>' +
+        '<div class="signal-row"><b>Wink</b><span>Left and right winks map to mouse clicks for hands-free control.</span></div>' +
+        '<div class="signal-row"><b>Face</b><span>Brow, pucker and mouth gestures stay experimental until the numbers are stable.</span></div>' +
+        '<div class="signal-row"><b>Escape</b><span>Head shake or Esc returns to this calibration menu.</span></div>' +
       '</div>' +
     '</div>';
   arena.appendChild(div);
+  var menuStarts = div.querySelectorAll('[data-menu-start]');
+  for (var i = 0; i < menuStarts.length; i++) {
+    menuStarts[i].addEventListener('click', function (e) {
+      startDrill(e.currentTarget.getAttribute('data-menu-start'));
+    });
+  }
 }
 
 function highlightRail(drill) {
@@ -494,7 +944,7 @@ function showSummary(title, rows, retryName, extraHtml) {
   clearArena();
   var div = document.createElement('div');
   div.className = 'center-wrap';
-  var html = '<div class="card"><h2>' + esc(title) + ' — COMPLETE</h2>';
+  var html = '<div class="card"><h2>' + esc(title) + ' - complete</h2>';
   for (var i = 0; i < rows.length; i++) {
     html += '<div class="row"><span class="k">' + esc(rows[i][0]) + '</span><span class="v">' + esc(rows[i][1]) + '</span></div>';
   }
@@ -511,7 +961,7 @@ function showSummary(title, rows, retryName, extraHtml) {
   $('#sum-sess').addEventListener('click', function () { startDrill('session'); });
 }
 
-/* random point for a w×h element kept ≥ margin from arena edges -------- */
+/* random point for a wxh element kept >= margin from arena edges -------- */
 function randPos(w, h, margin) {
   var r = arena.getBoundingClientRect();
   var minX = margin, minY = margin;
@@ -520,7 +970,7 @@ function randPos(w, h, margin) {
   return { x: rnd(minX, maxX), y: rnd(minY, maxY) };
 }
 
-/* ====================== DRILL 1 · TARGET CLICK ====================== */
+/* ====================== DRILL 1 / TARGET CLICK ====================== */
 
 function startTargetClick() {
   var ROUNDS = 10, EDGE = 80, SIZE = 56;
@@ -531,7 +981,7 @@ function startTargetClick() {
   function stats() {
     setBar('TARGET CLICK',
       'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
-      '  ·  avg ' + fmtMs(avg(times)) + '  ·  misses ' + misses + '  ·  strays ' + strays);
+      '  /  avg ' + fmtMs(avg(times)) + '  /  misses ' + misses + '  /  strays ' + strays);
   }
 
   function spawn() {
@@ -591,7 +1041,7 @@ function startTargetClick() {
   };
 }
 
-/* ====================== DRILL 2 · DOUBLE CLICK ====================== */
+/* ====================== DRILL 2 / DOUBLE CLICK ====================== */
 
 function startDoubleClick() {
   var ROUNDS = 10, EDGE = 80, SIZE = 56;
@@ -601,7 +1051,7 @@ function startDoubleClick() {
   function stats() {
     setBar('DOUBLE CLICK',
       'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
-      '  ·  avg ' + fmtMs(avg(times)) + '  ·  partials ' + partials + '  ·  misses ' + misses);
+      '  /  avg ' + fmtMs(avg(times)) + '  /  partials ' + partials + '  /  misses ' + misses);
   }
 
   function spawn() {
@@ -675,7 +1125,7 @@ function startDoubleClick() {
   };
 }
 
-/* ====================== DRILL 3 · DRAG & DROP ====================== */
+/* ====================== DRILL 3 / DRAG & DROP ====================== */
 
 function startDragDrop() {
   var ROUNDS = 8, EDGE = 80, SQ = 64, ZN = 96;
@@ -686,7 +1136,7 @@ function startDragDrop() {
   function stats() {
     setBar('DRAG & DROP',
       'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
-      '  ·  avg ' + fmtMs(avg(times)) + '  ·  failed drops ' + failedDrops);
+      '  /  avg ' + fmtMs(avg(times)) + '  /  failed drops ' + failedDrops);
   }
 
   function spawn() {
@@ -792,7 +1242,7 @@ function startDragDrop() {
   };
 }
 
-/* ====================== DRILL 4 · SCROLL BAND ====================== */
+/* ====================== DRILL 4 / SCROLL BAND ====================== */
 
 function startScrollBand() {
   var ROUNDS = 8, BAND_H = 90, CONTENT_H = 5200, HOLD_MS = 1000;
@@ -831,7 +1281,7 @@ function startScrollBand() {
   function stats() {
     setBar('SCROLL BAND',
       'round ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
-      '  ·  avg ' + fmtMs(avg(times)) + '  ·  overshoots ' +
+      '  /  avg ' + fmtMs(avg(times)) + '  /  overshoots ' +
       (overshoots.reduce(function (a, b) { return a + b; }, 0) + roundOvershoot));
   }
 
@@ -874,7 +1324,7 @@ function startScrollBand() {
       band.classList.add('locked');
       if (!holdTimer) {
         var t0 = now();
-        holdring.textContent = 'HOLD…';
+        holdring.textContent = 'HOLD...';
         holdTimer = setTimeout(function () {
           holdTimer = null;
           if (!done && inBand()) score();
@@ -892,7 +1342,7 @@ function startScrollBand() {
     scored = true;
     times.push(now() - roundStart - HOLD_MS);
     overshoots.push(roundOvershoot);
-    holdring.textContent = 'LOCKED ✓';
+    holdring.textContent = 'LOCKED ok';
     round++;
     if (round >= ROUNDS) { finish(); return; }
     setTimeout(function () { if (!done) spawnRound(); }, 700);
@@ -928,7 +1378,7 @@ function startScrollBand() {
   };
 }
 
-/* ==================== DRILL 5 · GESTURE REACTION ==================== */
+/* ==================== DRILL 5 / GESTURE REACTION ==================== */
 
 var GESTURES_CORE = ['LEFT WINK', 'RIGHT WINK', 'DOUBLE WINK', 'SCROLL UP', 'SCROLL DOWN'];
 var GESTURES_EXPERIMENTAL = ['NOD', 'SHAKE'];
@@ -949,9 +1399,9 @@ function startGestureReaction() {
   setup.className = 'center-wrap';
   setup.innerHTML =
     '<div class="card">' +
-      '<h2>GESTURE REACTION — SETUP</h2>' +
+      '<h2>GESTURE REACTION - SETUP</h2>' +
       '<div style="font-size:13px;line-height:1.8;color:var(--txt-dim)">' +
-        'first-class prompts: LEFT WINK · RIGHT WINK · DOUBLE WINK · SCROLL UP · SCROLL DOWN' +
+        'first-class prompts: LEFT WINK / RIGHT WINK / DOUBLE WINK / SCROLL UP / SCROLL DOWN' +
       '</div>' +
       '<label class="prelabel"><input type="checkbox" id="gexp"> include experimental (NOD/SHAKE)</label>' +
       '<div class="btns"><button class="bigbtn" id="gstart">START</button></div>' +
@@ -981,9 +1431,9 @@ function startGestureReaction() {
     var div = document.createElement('div');
     div.className = 'center-wrap';
     div.innerHTML =
-      '<div class="gprompt waiting" id="gp">get ready…</div>' +
+      '<div class="gprompt waiting" id="gp">get ready...</div>' +
       '<div class="gfeedback" id="gf"></div>' +
-      '<div class="hint">prompt appears → perform that gesture · 5s timeout · ESC between prompts exits</div>';
+      '<div class="hint">prompt appears -> perform that gesture / 5s timeout / ESC between prompts exits</div>';
     arena.appendChild(div);
     gp = $('#gp'); gf = $('#gf');
     stats();
@@ -996,7 +1446,7 @@ function startGestureReaction() {
     pool.forEach(function (g) { c += perG[g].correct; w += perG[g].wrong; t += perG[g].timeout; });
     setBar('GESTURE REACTION',
       'prompt ' + Math.min(idx + 1, TOTAL) + '/' + TOTAL +
-      '  ·  ✓ ' + c + '  ·  ✗ ' + w + '  ·  ⌛ ' + t);
+      '  /  ok ' + c + '  /  miss ' + w + '  /  timeout ' + t);
   }
 
   function nextPrompt() {
@@ -1004,7 +1454,7 @@ function startGestureReaction() {
     if (idx >= TOTAL) { finish(); return; }
     live = false;
     gp.className = 'gprompt waiting';
-    gp.textContent = '· · ·';
+    gp.textContent = '/ / /';
     stats();
     delayTimer = setTimeout(function () {
       if (done) return;
@@ -1040,11 +1490,11 @@ function startGestureReaction() {
       perG[expected].correct++;
       perG[expected].lats.push(lat);
       gf.className = 'gfeedback ok';
-      gf.textContent = '✓ ' + Math.round(lat) + 'ms';
+      gf.textContent = 'ok ' + Math.round(lat) + 'ms';
     } else {
       perG[expected].wrong++;
       gf.className = 'gfeedback bad';
-      gf.textContent = '✗ got ' + got;
+      gf.textContent = 'miss got ' + got;
     }
     afterResolve();
   }
@@ -1081,7 +1531,7 @@ function startGestureReaction() {
       var cls = rate == null ? '' : rate >= 0.99 ? 'good' : rate >= 0.5 ? 'warn' : 'bad';
       tableRows += '<tr><td>' + esc(g) + '</td><td>' + s.shown + '</td>' +
         '<td class="' + cls + '">' + s.correct + '</td><td>' + s.wrong + '</td><td>' + s.timeout + '</td>' +
-        '<td>' + (a == null ? '—' : Math.round(a) + 'ms') + '</td></tr>';
+        '<td>' + (a == null ? '-' : Math.round(a) + 'ms') + '</td></tr>';
     });
     var shown = c + w + t;
     var perGMetrics = {};
@@ -1102,11 +1552,11 @@ function startGestureReaction() {
     };
     recordDrill('gesture_reaction', metrics);
     var table =
-      '<table class="gtable"><tr><th>GESTURE</th><th>SHOWN</th><th>✓</th><th>✗</th><th>⌛</th><th>AVG LAT</th></tr>' +
+      '<table class="gtable"><tr><th>GESTURE</th><th>SHOWN</th><th>ok</th><th>miss</th><th>timeout</th><th>AVG LAT</th></tr>' +
       tableRows + '</table>';
     showSummary('GESTURE REACTION', [
       ['accuracy', fmtPct(metrics.accuracy)],
-      ['avg reaction latency', metrics.avg_latency_ms == null ? '—' : metrics.avg_latency_ms + 'ms'],
+      ['avg reaction latency', metrics.avg_latency_ms == null ? '-' : metrics.avg_latency_ms + 'ms'],
       ['wrong gestures', String(w)],
       ['timeouts', String(t)]
     ], 'gesture', table);
@@ -1136,7 +1586,7 @@ function startGestureReaction() {
     handleEscape: function () {
       // SHAKE is only a valid answer when the experimental pool is in play
       if (live && pool && pool.indexOf('SHAKE') !== -1) { input('SHAKE'); return true; }
-      return false;                                // between prompts / setup → exit to menu
+      return false;                                // between prompts / setup -> exit to menu
     },
     destroy: function () {
       done = true;
@@ -1147,7 +1597,7 @@ function startGestureReaction() {
   };
 }
 
-/* ===================== DRILL 6 · DICTATION WER ===================== */
+/* ===================== DRILL 6 / DICTATION WER ===================== */
 
 var SENTENCES = [
   "The quarterly report is due on Friday before the team meeting starts.",
@@ -1338,7 +1788,7 @@ function alignWER(ref, hyp) {
   }
   var errs = 0;
   for (var k = 0; k < ops.length; k++) if (ops[k].op !== 'ok') errs++;
-  // empty hypothesis → all deletions → WER 1.0; empty ref with hyp → 1.0
+  // empty hypothesis -> all deletions -> WER 1.0; empty ref with hyp -> 1.0
   var wer = n > 0 ? errs / n : (m > 0 ? 1 : 0);
   return { ops: ops, errs: errs, wer: wer, refLen: n };
 }
@@ -1359,10 +1809,10 @@ function startDictation() {
   setup.className = 'center-wrap';
   setup.innerHTML =
     '<div class="card">' +
-      '<h2>DICTATION WER — SETUP</h2>' +
+      '<h2>DICTATION WER - SETUP</h2>' +
       '<div style="font-size:13px;line-height:1.8;color:var(--txt-dim)">' +
         'STANDARD: read each sentence verbatim.<br>' +
-        'DISFLUENT: the prompt shows fillers (um, uh, you know) — speak them aloud; ' +
+        'DISFLUENT: the prompt shows fillers (um, uh, you know) - speak them aloud; ' +
         'scoring compares against the clean sentence, so a low WER means the cleanup layer is stripping them.' +
       '</div>' +
       '<label class="prelabel"><input type="checkbox" id="dictdisfl"> DISFLUENT set (tests cleanup layer)</label>' +
@@ -1392,10 +1842,10 @@ function startDictation() {
     div.className = 'center-wrap';
     div.innerHTML =
       '<div class="refbox"><div class="label">' +
-        (disfl ? 'READ THIS — SPEAK THE FILLERS TOO · HOLD RIGHT-OPTION &amp; WHISPER'
-               : 'READ THIS — HOLD RIGHT-OPTION &amp; WHISPER') +
+        (disfl ? 'READ THIS - SPEAK THE FILLERS TOO / HOLD RIGHT-OPTION &amp; WHISPER'
+               : 'READ THIS - HOLD RIGHT-OPTION &amp; WHISPER') +
       '</div><div id="refsent"></div></div>' +
-      '<textarea id="dictin" placeholder="dictated text lands here as real keystrokes…" spellcheck="false"></textarea>' +
+      '<textarea id="dictin" placeholder="dictated text lands here as real keystrokes..." spellcheck="false"></textarea>' +
       '<div class="diffbox" id="diff"></div>' +
       '<div class="werline" id="werline"></div>' +
       '<div class="wertrend" id="wertrend"></div>' +
@@ -1404,7 +1854,7 @@ function startDictation() {
         '<button class="bigbtn subtle" id="nextbtn" style="display:none">NEXT SENTENCE</button>' +
         '<button class="bigbtn subtle" id="clearbtn">CLEAR</button>' +
       '</div>' +
-      '<div class="hint">SCORE compares word-by-word (case &amp; punctuation ignored) · sub=yellow del=red ins=underline</div>';
+      '<div class="hint">SCORE compares word-by-word (case &amp; punctuation ignored) / sub=yellow del=red ins=underline</div>';
     arena.appendChild(div);
 
     refEl = $('#refsent'); input = $('#dictin'); diffEl = $('#diff'); werEl = $('#werline'); trendEl = $('#wertrend');
@@ -1422,8 +1872,8 @@ function startDictation() {
   function stats() {
     setBar('DICTATION WER',
       setName.toUpperCase() +
-      '  ·  sentence ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
-      '  ·  running WER ' + (wers.length ? (avg(wers) * 100).toFixed(1) + '%' : '—'));
+      '  /  sentence ' + Math.min(round + 1, ROUNDS) + '/' + ROUNDS +
+      '  /  running WER ' + (wers.length ? (avg(wers) * 100).toFixed(1) + '%' : '-'));
   }
 
   function showSentence() {
@@ -1440,7 +1890,7 @@ function startDictation() {
     setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
   }
 
-  /* per-round WER trend bars (0% → short green, 50%+ → tall red) */
+  /* per-round WER trend bars (0% -> short green, 50%+ -> tall red) */
   function renderTrend() {
     var html = '';
     for (var k = 0; k < wers.length; k++) {
@@ -1457,7 +1907,7 @@ function startDictation() {
     for (var k = 0; k < ops.length; k++) {
       var o = ops[k];
       if (o.op === 'ok') html += '<span class="w ok">' + esc(o.ref) + '</span> ';
-      else if (o.op === 'sub') html += '<span class="w sub" title="said: ' + esc(o.hyp) + '">' + esc(o.ref) + '→' + esc(o.hyp) + '</span> ';
+      else if (o.op === 'sub') html += '<span class="w sub" title="said: ' + esc(o.hyp) + '">' + esc(o.ref) + '->' + esc(o.hyp) + '</span> ';
       else if (o.op === 'del') html += '<span class="w del">' + esc(o.ref) + '</span> ';
       else html += '<span class="w ins">+' + esc(o.hyp) + '</span> ';
     }
@@ -1473,18 +1923,18 @@ function startDictation() {
     wers.push(res.wer);
     errsTotal += res.errs;
     wordsTotal += res.refLen;
-    // second pass: normalized (ignore punctuation & number formatting) — report card only
+    // second pass: normalized (ignore punctuation & number formatting) - report card only
     var nRes = alignWER(normalizeTokens(currentRef), normalizeTokens(input.value));
     normWers.push(nRes.wer);
     normErrsTotal += nRes.errs;
     normWordsTotal += nRes.refLen;
     renderDiff(res.ops);
     werEl.innerHTML = 'WER <span style="color:' + (res.wer <= 0.05 ? 'var(--green)' : res.wer <= 0.15 ? 'var(--yellow)' : 'var(--red)') + '">' +
-      (res.wer * 100).toFixed(1) + '%</span> · ' + res.errs + ' err / ' + res.refLen + ' words';
+      (res.wer * 100).toFixed(1) + '%</span> / ' + res.errs + ' err / ' + res.refLen + ' words';
     // tail-garbage detection (repo issue #1: hallucination tails)
     if (res.refLen > 0 && hyp.length > res.refLen * TAIL_RATIO) {
       tailFlags++;
-      werEl.innerHTML += ' · <span class="tailflag">⚠ possible hallucination tail — ' +
+      werEl.innerHTML += ' / <span class="tailflag">warning: possible hallucination tail - ' +
         hyp.length + ' words vs ' + res.refLen + ' ref</span>';
     }
     renderTrend();
@@ -1553,7 +2003,7 @@ function startSettings() {
   var rows = {};       // key -> { range, num, val, status, okTimer }
   var lineEl = null;
 
-  setBar('SETTINGS', 'connecting to whisperquiet on 127.0.0.1:8377…');
+  setBar('SETTINGS', 'connecting to whisperquiet on 127.0.0.1:8377...');
 
   function toNum(v) {
     if (v === '' || v == null) return null;
@@ -1620,16 +2070,16 @@ function startSettings() {
     }).then(function (res) {
       if (disposed) return;
       if (!res || res.ok !== true) throw new Error('bad response');
-      for (var i = 0; i < keys.length; i++) flashStatus(keys[i], 'applied ✓', 'ok');
-      setLine('applied ' + keys.length + ' change' + (keys.length === 1 ? '' : 's') + ' ✓');
-      tick('settings ✓ ' + keys.join(','));
+      for (var i = 0; i < keys.length; i++) flashStatus(keys[i], 'applied ok', 'ok');
+      setLine('applied ' + keys.length + ' change' + (keys.length === 1 ? '' : 's') + ' ok');
+      tick('settings ok ' + keys.join(','));
     }).catch(function () {
       if (disposed) return;
       for (var i = 0; i < keys.length; i++) {
         flashStatus(keys[i], 'offline?', 'err');
         if (!(keys[i] in dirty)) dirty[keys[i]] = payload[keys[i]];  // retried on next change
       }
-      setLine('apply failed — whisperquiet offline? values kept, retried on next change');
+      setLine('apply failed - whisperquiet offline? values kept, retried on next change');
       tick('settings POST failed');
     });
   }
@@ -1734,7 +2184,7 @@ function startSettings() {
 
     lineEl = document.createElement('div');
     lineEl.className = 'hint';
-    lineEl.textContent = Object.keys(spec).length + ' settings loaded — drag a slider to apply live';
+    lineEl.textContent = Object.keys(spec).length + ' settings loaded - drag a slider to apply live';
     wrap.appendChild(lineEl);
 
     var groups = {};
@@ -1769,20 +2219,20 @@ function startSettings() {
     div.className = 'center-wrap';
     div.innerHTML =
       '<div class="card">' +
-        '<h2>SETTINGS — NOT CONNECTED</h2>' +
+        '<h2>SETTINGS - NOT CONNECTED</h2>' +
         '<div style="font-size:15px;line-height:1.8;color:var(--txt-dim)">' +
-          'whisperquiet isn&#39;t running or is an older build &mdash; start it with ' +
+          'whisperquiet isn&#39;t running or is an older build - start it with ' +
           '<span style="color:var(--teal);font-family:var(--mono)">wq-start</span>' +
         '</div>' +
         '<div class="btns"><button class="bigbtn" id="set-retry">RETRY</button></div>' +
-        '<div class="hint" style="margin-top:16px">retrying automatically every 3s…</div>' +
+        '<div class="hint" style="margin-top:16px">retrying automatically every 3s...</div>' +
       '</div>';
     arena.appendChild(div);
     $('#set-retry').addEventListener('click', function () {
       if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
       load();
     });
-    setBar('SETTINGS', 'offline — waiting for whisperquiet on 127.0.0.1:8377');
+    setBar('SETTINGS', 'offline - waiting for whisperquiet on 127.0.0.1:8377');
     if (pollTimer) clearTimeout(pollTimer);
     pollTimer = setTimeout(function () {
       pollTimer = null;
@@ -1811,12 +2261,12 @@ function startSettings() {
           fetched[k] = spec[k].value;
         });
         render();
-        setBar('SETTINGS', Object.keys(spec).length + ' settings · connected to 127.0.0.1:8377');
-        tick('settings GET ✓');
+        setBar('SETTINGS', Object.keys(spec).length + ' settings / connected to 127.0.0.1:8377');
+        tick('settings GET ok');
       })
       .catch(function () {
         if (disposed) return;
-        if (spec) { setLine('refresh failed — keeping current values'); return; }
+        if (spec) { setLine('refresh failed - keeping current values'); return; }
         showOffline();
       });
   }
@@ -1824,7 +2274,7 @@ function startSettings() {
   // placeholder while the first GET is in flight
   var boot = document.createElement('div');
   boot.className = 'center-wrap';
-  boot.innerHTML = '<div class="hint">connecting to whisperquiet…</div>';
+  boot.innerHTML = '<div class="hint">connecting to whisperquiet...</div>';
   arena.appendChild(boot);
   load();
 
@@ -1852,17 +2302,17 @@ function keyMetricsLine(d) {
   var m = d.metrics || {};
   switch (d.type) {
     case 'target_click':
-      return 'avg <b>' + fmtMs(m.avg_time_ms) + '</b> · accuracy <b>' + fmtPct(m.accuracy) + '</b> · misses/round <b>' + (m.misses_per_round != null ? m.misses_per_round.toFixed(2) : '—') + '</b>';
+      return 'avg <b>' + fmtMs(m.avg_time_ms) + '</b> / accuracy <b>' + fmtPct(m.accuracy) + '</b> / misses/round <b>' + (m.misses_per_round != null ? m.misses_per_round.toFixed(2) : '-') + '</b>';
     case 'double_click':
-      return 'latency <b>' + fmtMs(m.avg_dblclick_latency_ms) + '</b> · clean rate <b>' + fmtPct(m.success_rate_clean) + '</b> · partials <b>' + m.partial_single_clicks + '</b>';
+      return 'latency <b>' + fmtMs(m.avg_dblclick_latency_ms) + '</b> / clean rate <b>' + fmtPct(m.success_rate_clean) + '</b> / partials <b>' + m.partial_single_clicks + '</b>';
     case 'drag_drop':
-      return 'avg <b>' + fmtMs(m.avg_completion_ms) + '</b> · failed drops <b>' + m.failed_drops + '</b>';
+      return 'avg <b>' + fmtMs(m.avg_completion_ms) + '</b> / failed drops <b>' + m.failed_drops + '</b>';
     case 'scroll_band':
-      return 'avg lock <b>' + fmtMs(m.avg_time_to_band_ms) + '</b> · overshoots/round <b>' + (m.overshoots_per_round != null ? m.overshoots_per_round.toFixed(2) : '—') + '</b>';
+      return 'avg lock <b>' + fmtMs(m.avg_time_to_band_ms) + '</b> / overshoots/round <b>' + (m.overshoots_per_round != null ? m.overshoots_per_round.toFixed(2) : '-') + '</b>';
     case 'gesture_reaction':
-      return 'accuracy <b>' + fmtPct(m.accuracy) + '</b> · avg latency <b>' + (m.avg_latency_ms != null ? m.avg_latency_ms + 'ms' : '—') + '</b> · timeouts <b>' + m.timeouts + '</b>';
+      return 'accuracy <b>' + fmtPct(m.accuracy) + '</b> / avg latency <b>' + (m.avg_latency_ms != null ? m.avg_latency_ms + 'ms' : '-') + '</b> / timeouts <b>' + m.timeouts + '</b>';
     case 'dictation_wer':
-      return 'avg WER <b>' + (m.avg_wer != null ? (m.avg_wer * 100).toFixed(1) + '%' : '—') + '</b> · errors <b>' + m.total_errors + '/' + m.total_ref_words + '</b>';
+      return 'avg WER <b>' + (m.avg_wer != null ? (m.avg_wer * 100).toFixed(1) + '%' : '-') + '</b> / errors <b>' + m.total_errors + '/' + m.total_ref_words + '</b>';
     default:
       return '';
   }
@@ -1899,7 +2349,7 @@ function showSession() {
     var empty = document.createElement('div');
     empty.className = 'hint';
     empty.style.marginTop = '30px';
-    empty.textContent = 'no completed drills yet — finish a drill and it lands here (persists in localStorage)';
+    empty.textContent = 'no completed drills yet - finish a drill and it lands here (persists in localStorage)';
     wrap.appendChild(empty);
   } else {
     for (var i = history.length - 1; i >= 0; i--) {
@@ -1929,9 +2379,9 @@ function showSession() {
       a.click();
       a.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-      setNote('downloaded ✓');
+      setNote('downloaded ok');
     } catch (e) {
-      setNote('download failed — use COPY TO CLIPBOARD');
+      setNote('download failed - use COPY TO CLIPBOARD');
     }
   });
 
@@ -1946,12 +2396,12 @@ function showSession() {
         ta.select();
         var ok = document.execCommand('copy');
         ta.remove();
-        setNote(ok ? 'copied ✓' : 'copy failed');
+        setNote(ok ? 'copied ok' : 'copy failed');
       } catch (e) { setNote('copy failed'); }
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(txt).then(
-        function () { setNote('copied ✓'); },
+        function () { setNote('copied ok'); },
         legacyCopy
       );
     } else legacyCopy();
@@ -1979,7 +2429,7 @@ function showSession() {
 })();
 $('#bar-exit').addEventListener('click', goMenu);
 
-// no context menus — right-wink must stay a clean right-click signal
+// no context menus - right-wink must stay a clean right-click signal
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
 // keep wink-drag from selecting text / dragging images

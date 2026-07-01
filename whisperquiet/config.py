@@ -39,6 +39,12 @@ class Config:
     # optional on-device LLM rescoring stage (fixes implausible recognition
     # errors); OFF by default — opt-in, requires the optional mlx_lm dependency
     rescore_enabled: bool = False
+    # MLX/Metal memory tuning. Keep model weights resident for latency, but cap
+    # the allocator cache and clear cached buffers after warm-up/dictation so the
+    # app does not sit on several GB of reusable GPU memory at idle.
+    mlx_cache_limit_mb: int = 256
+    mlx_memory_limit_mb: int = 0
+    mlx_clear_cache_after_decode: bool = True
     # hard speech-presence gate on the committed dictation (whisperquiet/vad.py):
     # drops the result when the audio is silence or steady tonal noise so it is
     # never committed as a hallucination. OFF by default — the built-in detector
@@ -50,6 +56,9 @@ class Config:
     keep_transcripts: bool = True
     # save each dictation's audio as WAV on-device (WER benchmarking + LoRA)
     keep_audio: bool = True
+    # Raw audio is useful for dogfooding, but it must stay bounded by default.
+    audio_retention_mb: int = 512
+    audio_retention_days: int = 30
     # Gesture/cursor settings, calibration, tunables, experimental flags
     gestures: dict = field(default_factory=dict)
     # Names/jargon the user dictates often; biases the whisper decoder

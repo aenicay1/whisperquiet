@@ -55,3 +55,27 @@ def test_render_latency_na_without_samples(tmp_path):
     feedback.write_text("")
     out = report.render(stats, feedback)
     assert "n/a" in out
+
+
+def test_render_shows_mlx_memory_counters(tmp_path):
+    now = int(time.time())
+    stats = tmp_path / "stats.jsonl"
+    feedback = tmp_path / "feedback.jsonl"
+    _write_jsonl(stats, [
+        {"ts": now, "kind": "mlx_active_mb", "n": 1500},
+        {"ts": now, "kind": "mlx_cache_mb", "n": 96},
+        {"ts": now, "kind": "mlx_peak_mb", "n": 4500},
+        {"ts": now, "kind": "mlx_reclaimed_mb", "n": 2704},
+        {"ts": now, "kind": "mlx_active_mb", "n": 1510},
+        {"ts": now, "kind": "mlx_cache_mb", "n": 80},
+        {"ts": now, "kind": "mlx_peak_mb", "n": 4600},
+        {"ts": now, "kind": "mlx_reclaimed_mb", "n": 16},
+    ])
+    feedback.write_text("")
+
+    out = report.render(stats, feedback)
+    assert "memory (MLX / Metal)" in out
+    assert "active latest       1510 MB" in out
+    assert "cache latest          80 MB" in out
+    assert "peak max            4600 MB" in out
+    assert "cache reclaimed     2720 MB" in out

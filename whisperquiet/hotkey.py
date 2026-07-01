@@ -8,6 +8,7 @@ the Input Monitoring permission; tap creation returns None without it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 import Quartz
@@ -55,6 +56,8 @@ class PushToTalk:
         self._on_physical_mouse = on_physical_mouse
         self._held = False
         self._flag_held = False
+        self._flag_press_time: float | None = None
+        self._flag_used_as_modifier = False
         self._tap = None
 
     def start(self) -> None:
@@ -119,6 +122,16 @@ class PushToTalk:
         Quartz.kCGEventTapDisabledByTimeout,
         Quartz.kCGEventTapDisabledByUserInput,
     )
+    # Any of these, for a key/modifier other than the flag key itself,
+    # while the flag key is held means it's being used as a modifier (or
+    # the PTT key was pressed/released) rather than tapped in isolation.
+    _KEY_ACTIVITY_TYPES = (
+        Quartz.kCGEventKeyDown,
+        Quartz.kCGEventKeyUp,
+        Quartz.kCGEventFlagsChanged,
+    )
+    # A flag-key hold shorter than this counts as a deliberate tap.
+    _FLAG_TAP_MAX_SECONDS = 0.5
 
     def _handle(self, proxy, etype, event, refcon):
         try:
@@ -146,15 +159,37 @@ class PushToTalk:
                     event, Quartz.kCGKeyboardEventAutorepeat
                 ):
                     self._on_physical_key()
-            if (
+            is_flag_key_event = (
                 self._flag_keycode is not None
                 and keycode == self._flag_keycode
                 and etype == Quartz.kCGEventFlagsChanged
+            )
+            if (
+                self._flag_held
+                and not is_flag_key_event
+                and etype in self._KEY_ACTIVITY_TYPES
             ):
+                # The flag key is being held down as a modifier while some
+                # other key/modifier activity happens (typing a shortcut,
+                # pressing the PTT key, etc.) — this was not an isolated
+                # tap, so suppress the flag on release.
+                self._flag_used_as_modifier = True
+            if is_flag_key_event:
                 flag = _MODIFIER_FLAGS.get(self._flag_keycode, 0)
                 held = bool(Quartz.CGEventGetFlags(event) & flag)
-                if held and not self._flag_held and self._on_flag is not None:
-                    self._on_flag()
+                if held and not self._flag_held:
+                    self._flag_press_time = time.monotonic()
+                    self._flag_used_as_modifier = False
+                elif not held and self._flag_held:
+                    is_tap = (
+                        not self._flag_used_as_modifier
+                        and self._flag_press_time is not None
+                        and (time.monotonic() - self._flag_press_time)
+                        < self._FLAG_TAP_MAX_SECONDS
+                    )
+                    if is_tap and self._on_flag is not None:
+                        self._on_flag()
+                    self._flag_press_time = None
                 self._flag_held = held
             if keycode == self._keycode:
                 if etype == Quartz.kCGEventFlagsChanged:
