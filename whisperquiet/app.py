@@ -37,12 +37,12 @@ class WhisperQuietApp(rumps.App):
     # shown on the notch + status menu when the model download/load gives up
     # permanently after retries (see _load_model_with_retries / _warm_up).
     _MODEL_LOAD_ERROR = (
-        "⚠️ model download failed — check connection/disk space, then quit "
+        "Model download failed — check connection/disk space, then quit "
         "and reopen to retry"
     )
 
     def __init__(self) -> None:
-        super().__init__("🤫", quit_button="Quit")
+        super().__init__("WQ", quit_button="Quit")
         self.config = config_mod.load()
         config_mod.save(self.config)  # write defaults on first run
         self.status_item = rumps.MenuItem("Status: loading model…")
@@ -323,10 +323,10 @@ class WhisperQuietApp(rumps.App):
         # a persistent notch + a menu line that says the long wait is a one-time
         # download, not a hang. Cached launches just flash "loading model…".
         if self._model_is_cached(model_repo):
-            self.indicator.notify("⏳", "loading model…")
+            self.indicator.notify("...", "loading model…")
             self.status_item.title = "Status: loading model…"
         else:
-            self.indicator.notify("⏳", "downloading model…")
+            self.indicator.notify("...", "downloading model…")
             self.status_item.title = "Status: downloading model (first run, ~1.6 GB)…"
         mlx_runtime.configure(
             cache_limit_mb=self.config.mlx_cache_limit_mb,
@@ -389,7 +389,7 @@ class WhisperQuietApp(rumps.App):
             flush=True,
         )
         self._model_load_error = self._MODEL_LOAD_ERROR
-        self.indicator.notify("⚠️", self._MODEL_LOAD_ERROR)
+        self.indicator.notify("!", self._MODEL_LOAD_ERROR)
         self.status_item.title = f"Status: {self._MODEL_LOAD_ERROR}"
         return False
 
@@ -457,11 +457,11 @@ class WhisperQuietApp(rumps.App):
                 # the download/load gave up permanently (see _warm_up) — keep
                 # restating the real error instead of "loading model…", which
                 # would otherwise look like it's about to finish forever.
-                self.indicator.notify("⚠️", self._model_load_error)
+                self.indicator.notify("!", self._model_load_error)
                 return
             # hotkey is live during the first-run model download/load; say so
             # rather than starting a worker that would stall on a cold decode.
-            self.indicator.notify("⏳", "loading model…")
+            self.indicator.notify("...", "loading model…")
             # clear the notice shortly — but not if the model became ready
             # mid-hold and a real dictation is now showing, so we never blank a
             # live listening/working notch.
@@ -516,7 +516,7 @@ class WhisperQuietApp(rumps.App):
             from .vision.controller import CameraController
         except ImportError:
             # public dictation build is frozen without the camera stack
-            self.indicator.notify("⚠️", "camera unavailable")
+            self.indicator.notify("!", "camera unavailable")
             threading.Timer(1.6, self.indicator.hide).start()
             return
 
@@ -609,7 +609,7 @@ class WhisperQuietApp(rumps.App):
         def _stuck_warn() -> None:
             if not self._mic_ready.is_set() and self._recording.is_set():
                 print("mic open is slow/stuck — surfacing", flush=True)
-                self.indicator.notify("⚠️", "mic stuck")
+                self.indicator.notify("!", "mic stuck")
 
         stuck_timer = threading.Timer(4.0, _stuck_warn)
         stuck_timer.start()
@@ -619,7 +619,7 @@ class WhisperQuietApp(rumps.App):
             stuck_timer.cancel()
             print("mic failed to open:", exc, flush=True)
             self._recording.clear()
-            self.indicator.notify("⚠️", "mic failed")
+            self.indicator.notify("!", "mic failed")
             threading.Timer(2.5, self.indicator.hide).start()
             self._release_t = None  # nothing will commit; don't leave a stamp
             return
@@ -696,7 +696,7 @@ class WhisperQuietApp(rumps.App):
                 traceback.print_exc()
                 decode_failed = True
         if decode_failed:
-            self.indicator.notify("⚠️", "transcription failed")
+            self.indicator.notify("!", "transcription failed")
             threading.Timer(2.0, self.indicator.hide).start()
             self._release_t = None  # nothing will commit; don't leave a stale stamp
             self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
@@ -767,7 +767,7 @@ class WhisperQuietApp(rumps.App):
             can_inject, block_reason = inject.can_inject()
             if not can_inject:
                 print("inject blocked:", block_reason, flush=True)
-                self.indicator.notify("⚠️", block_reason)
+                self.indicator.notify("!", block_reason)
                 threading.Timer(3.0, self.indicator.hide).start()
                 self._release_t = None  # nothing committed; don't keep a stale stamp
             else:
@@ -796,7 +796,7 @@ class WhisperQuietApp(rumps.App):
             self._release_t = None  # nothing committed; don't keep a stale stamp
             if audio.size > 16000:
                 # decoded but produced nothing — say so, never fail silently
-                self.indicator.notify("⚠️", "no speech")
+                self.indicator.notify("!", "no speech")
                 threading.Timer(1.6, self.indicator.hide).start()
             else:
                 self.indicator.hide()

@@ -261,8 +261,8 @@ class NotchIndicator:
     """The app's single status surface: a small pill top-center near the notch.
 
     Left zone: a colored dot + short label. Right zone: EITHER the live audio
-    spectrum (while listening) OR a status glyph (working ⏳, flagged 🚩,
-    a warning ⚠️/🎙️/✅). Because there is no bottom modal, every state — a stuck
+    spectrum (while listening) OR a status glyph (working/flagged,
+    a warning/loading label). Because there is no bottom modal, every state — a stuck
     mic, a flag, "no speech" — shows here, never silently.
 
     Built-in modes via the mode methods; ``notify(glyph, label)`` shows an
@@ -281,8 +281,8 @@ class NotchIndicator:
     # mode -> (dot color, left label, right glyph or None=show spectrum)
     _MODES = {
         "listening": ("red", "listening", None),
-        "working": ("gray", "working…", "⏳"),
-        "flagged": ("red", "flagged", "🚩"),
+        "working": ("gray", "working…", "..."),
+        "flagged": ("red", "flagged", "!"),
     }
     _DOT_COLORS = {
         "red": "systemRedColor",
@@ -427,9 +427,9 @@ class NotchIndicator:
         _fade_in_panel(self._panel, self._base_frame, rise=0.0)
 
     def _maybe_spin(self, mode: str) -> None:
-        # animate the hourglass by flipping ⏳/⌛ so it reads as "working".
+        # Pulse the working glyph so the indicator does not look frozen.
         # Guarded by the generation counter + current mode, so it stops the
-        # instant the mode changes or the panel hides. Degrades to a static ⏳.
+        # instant the mode changes or the panel hides.
         if mode != "working":
             return
         gen = self._gen
@@ -438,7 +438,7 @@ class NotchIndicator:
             if gen != self._gen or self._mode != "working":
                 return
             try:
-                self._glyph.setStringValue_("⌛" if done else "⏳")
+                self._glyph.setStringValue_(".." if done else "...")
             except Exception:
                 return
             AppHelper.callLater(0.6, tick, not done)

@@ -1,4 +1,4 @@
-# whisperquiet 🤫
+# WhisperQuiet
 
 **Private, on-device dictation for macOS — like [Wispr Flow](https://wisprflow.ai),
 but free and fully local.** Hold a key, (whisper-)speak, release — your words land
@@ -79,8 +79,8 @@ Off by default and frozen for now (dictation is the priority). When enabled:
 
 | Action | How |
 |---|---|
-| Camera control on/off | 🤫 menu → *Camera Control*, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-camera"` |
-| Head cursor on/off | 🤫 menu → *Head Cursor*, or `…/trigger-cursor` |
+| Camera control on/off | WQ menu → *Camera Control*, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-camera"` |
+| Head cursor on/off | WQ menu → *Head Cursor*, or `…/trigger-cursor` |
 | Left / right click | left / right **wink** |
 | Scroll up / down | **raise brows** / **pucker** |
 | Drag | **open mouth** to grab, close to drop |
@@ -88,7 +88,7 @@ Off by default and frozen for now (dictation is the priority). When enabled:
 
 First activation runs a ~25-second guided calibration; your personal gesture
 thresholds persist across launches. The HUD (top right) shows live gesture
-meters, a face wireframe, status, and fps. If the 🤫 icon is hidden (notch
+meters, a face wireframe, status, and fps. If the WQ menu icon is hidden (notch
 overflow), every control also works through the trigger files.
 
 ## Development
