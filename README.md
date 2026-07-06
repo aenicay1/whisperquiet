@@ -27,9 +27,12 @@ off via `keep_audio` / `keep_transcripts` in config.
 
 - **Push-to-talk dictation** — hold **right Option**, speak or whisper, release;
   text is injected into the focused app.
-- **Accurate** — `whisper-large-v3-turbo` (MLX) plus a personal vocabulary that
-  biases the names and jargon you actually use. Near-perfect on quiet speech and
-  strong on whispered speech.
+- **Light by default** — `whisper-small.en-mlx` (MLX) keeps the all-day memory
+  footprint much lower for normal spoken dictation.
+- **Accuracy mode** — switch to `whisper-large-v3-turbo` from Preferences when
+  you need the strongest low-volume or whispered-speech accuracy.
+- **Personal vocabulary** — bias the names and jargon you actually use, editable
+  from Preferences or the helper script.
 - **Long-form** — silence-aware chunking + incremental streaming, so long
   brain-dumps don't drop sentences and release latency stays low.
 - **Cleanup** — strips fillers and false starts and fixes obvious slips
@@ -40,8 +43,9 @@ off via `keep_audio` / `keep_transcripts` in config.
   wink/brow/mouth gestures for hands-free control. Off by default and currently
   frozen while dictation is the focus (see DESIGN.md, Pivot #2).
 
-Everything runs locally. First launch downloads the Whisper model (~1.6 GB) once;
-after that it works offline.
+Everything runs locally. First launch downloads the default Whisper model
+(~459 MB) once; after that it works offline. The optional Accuracy model is a
+larger one-time download (~1.5 GB).
 
 ## Install
 
@@ -54,7 +58,7 @@ open ~/Applications/WhisperQuiet.app
 ```
 
 > Keep the repo **outside** `~/Documents` (TCC blocks app bundles from
-> reading it). First run downloads the whisper model (~1.6 GB) and prompts
+> reading it). First run downloads the default whisper model (~459 MB) and prompts
 > for **Microphone**, **Accessibility**, and **Input Monitoring** — grant
 > all three, then relaunch (macOS applies permissions at launch). Camera
 > permission is requested only if you enable the experimental camera control.
@@ -64,7 +68,9 @@ open ~/Applications/WhisperQuiet.app
 | Action | How |
 |---|---|
 | **Dictate** | hold **right Option**, whisper, release — text lands in the focused app |
-| Add a vocabulary term | `scripts/vocab.py add "EBITDA" "Circleback"` (biases the decoder) |
+| Open Preferences | WQ menu → *Preferences*, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-settings"` |
+| Switch model | WQ menu → *Use Light Model* / *Use Accuracy Model*, or Preferences → Models |
+| Add a vocabulary term | Preferences → Dictionary, or `scripts/vocab.py add "EBITDA" "Circleback"` |
 | Check memory/cache footprint | `scripts/cache.py status` |
 | Dogfood scorecard | `scripts/report.py` |
 | Quit (clears any stuck panel) | `…/trigger-quit` |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import threading
 import time
 import traceback
@@ -17,6 +18,7 @@ from .settings_server import SettingsServer
 from .stats import SessionStats
 from .hotkey import PushToTalk
 from .overlay import NotchIndicator
+from .preferences_ui import HTML as PREFERENCES_HTML
 
 
 def _camera_deps_available() -> bool:
@@ -46,7 +48,28 @@ class WhisperQuietApp(rumps.App):
         self.config = config_mod.load()
         config_mod.save(self.config)  # write defaults on first run
         self.status_item = rumps.MenuItem("Status: loading model…")
-        menu = [self.status_item]
+        self.preferences_item = rumps.MenuItem(
+            "Preferences…", callback=self._open_preferences
+        )
+        self.dictionary_item = rumps.MenuItem(
+            "Open Dictionary", callback=self._open_dictionary
+        )
+        self.light_model_item = rumps.MenuItem(
+            "Use Light Model", callback=self._select_light_model
+        )
+        self.accuracy_model_item = rumps.MenuItem(
+            "Use Accuracy Model", callback=self._select_accuracy_model
+        )
+        menu = [
+            self.status_item,
+            None,
+            self.preferences_item,
+            self.dictionary_item,
+            None,
+            self.light_model_item,
+            self.accuracy_model_item,
+        ]
+        self._sync_model_menu_state()
         # The public dictation build is frozen WITHOUT the camera stack
         # (mediapipe/opencv), so hide its menu items there; a source checkout
         # that installed those deps still gets the experimental camera surface.
@@ -97,6 +120,9 @@ class WhisperQuietApp(rumps.App):
         # serialize every backend decode: shared model arrays / the default MLX
         # stream are not safe under concurrent eval.
         self._tx_lock = threading.Lock()
+        self._model_last_used_t = time.monotonic()
+        self._model_unload_timer: threading.Timer | None = None
+        self._model_loading = threading.Event()
 
         self.ptt = PushToTalk(
             self.config.ptt_key,
@@ -110,9 +136,14 @@ class WhisperQuietApp(rumps.App):
         threading.Thread(target=self._warm_up, daemon=True).start()
         threading.Thread(target=self._watch_triggers, daemon=True).start()
         self.settings_server = SettingsServer(
-            self._tunables_state, self._apply_tunables
+            self._tunables_state,
+            self._apply_tunables,
+            get_preferences=self._preferences_state,
+            apply_preferences=self._apply_preferences,
+            preferences_html=PREFERENCES_HTML,
         )
-        print("settings bridge on port", self.settings_server.start(), flush=True)
+        self.settings_port = self.settings_server.start()
+        print("settings bridge on port", self.settings_port, flush=True)
 
     # (value, min, max, step, label, group) — schema for the playground tab
     _TUNABLES = {
@@ -184,6 +215,174 @@ class WhisperQuietApp(rumps.App):
                 self._camera.set_experimental(exp)
             self._camera.apply_tunables(clean)
 
+    def _preferences_url(self, fragment: str = "general") -> str:
+        port = getattr(self, "settings_port", 8377)
+        return f"http://127.0.0.1:{port}/#{fragment}"
+
+    def _open_preferences(self, _item=None) -> None:
+        subprocess.Popen(["open", self._preferences_url("general")])
+
+    def _open_dictionary(self, _item=None) -> None:
+        subprocess.Popen(["open", self._preferences_url("dictionary")])
+
+    def _select_light_model(self, _item=None) -> None:
+        self._select_model_profile("light")
+
+    def _select_accuracy_model(self, _item=None) -> None:
+        self._select_model_profile("accuracy")
+
+    def _select_model_profile(self, profile: str) -> None:
+        try:
+            self._apply_preferences({"model_profile": profile})
+        except Exception as exc:
+            print("model selection failed:", exc, flush=True)
+            self.indicator.notify("!", str(exc))
+            threading.Timer(2.0, self.indicator.hide).start()
+
+    def _sync_model_menu_state(self) -> None:
+        profile = getattr(self.config, "model_profile", "custom")
+        if hasattr(self, "light_model_item"):
+            self.light_model_item.state = 1 if profile == "light" else 0
+        if hasattr(self, "accuracy_model_item"):
+            self.accuracy_model_item.state = 1 if profile == "accuracy" else 0
+
+    def _preferences_state(self) -> dict:
+        return {
+            "status": {
+                "title": self.status_item.title,
+                "recording": self._recording.is_set(),
+                "model_ready": self._model_ready.is_set(),
+            },
+            "model": {
+                "profile": getattr(self.config, "model_profile", "custom"),
+                "repo": self.config.model_repo,
+                "busy": self._recording.is_set()
+                or (self._worker is not None and self._worker.is_alive()),
+                "choices": self._model_choices_state(),
+            },
+            "dictionary": {"terms": self._display_vocabulary()},
+            "settings": {
+                "cleanup_enabled": self.config.cleanup_enabled,
+                "keep_audio": self.config.keep_audio,
+                "keep_transcripts": self.config.keep_transcripts,
+                "inject_mode": self.config.inject_mode,
+                "model_idle_unload_s": self.config.model_idle_unload_s,
+                "stream_interval": self.config.stream_interval,
+                "audio_retention_mb": self.config.audio_retention_mb,
+                "audio_retention_days": self.config.audio_retention_days,
+            },
+        }
+
+    def _model_choices_state(self) -> list[dict]:
+        choices = []
+        for profile, meta in config_mod.MODEL_PROFILES.items():
+            repo = meta["repo"]
+            choices.append(
+                {
+                    "id": profile,
+                    "label": meta["label"],
+                    "repo": repo,
+                    "description": meta["description"],
+                    "memory_mb": meta["memory_mb"],
+                    "download_mb": meta["download_mb"],
+                    "selected": self.config.model_repo == repo,
+                }
+            )
+        return choices
+
+    def _display_vocabulary(self) -> list[str]:
+        return [term.strip().rstrip(".") for term in self.config.vocabulary if term.strip()]
+
+    def _normalize_vocabulary(self, terms) -> list[str]:
+        if not isinstance(terms, list):
+            raise ValueError("vocabulary must be a list")
+        out = []
+        seen = set()
+        for term in terms:
+            if not isinstance(term, str):
+                continue
+            clean = term.strip().rstrip(".").strip()
+            if not clean:
+                continue
+            key = clean.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(clean + ".")
+        return out
+
+    def _apply_preferences(self, values: dict) -> None:
+        model_profile = values.get("model_profile")
+        changed = False
+        bool_fields = ("cleanup_enabled", "keep_audio", "keep_transcripts")
+        for field in bool_fields:
+            if field in values:
+                setattr(self.config, field, bool(values[field]))
+                changed = True
+        if "inject_mode" in values:
+            mode = str(values["inject_mode"])
+            if mode not in ("keystrokes", "paste"):
+                raise ValueError("invalid inject mode")
+            self.config.inject_mode = mode
+            changed = True
+        numeric_fields = {
+            "model_idle_unload_s": (0.0, 86400.0, float),
+            "stream_interval": (0.3, 2.0, float),
+            "audio_retention_mb": (0, 100000, int),
+            "audio_retention_days": (0, 3650, int),
+        }
+        for field, (lo, hi, caster) in numeric_fields.items():
+            if field not in values:
+                continue
+            value = caster(float(values[field]))
+            value = max(lo, min(hi, value))
+            setattr(self.config, field, value)
+            changed = True
+        if "vocabulary" in values:
+            self.config.vocabulary = self._normalize_vocabulary(values["vocabulary"])
+            changed = True
+        if changed:
+            config_mod.save(self.config)
+            self._schedule_model_idle_unload()
+        if model_profile is not None:
+            self._switch_model_profile(str(model_profile))
+
+    def _switch_model_profile(self, profile: str) -> None:
+        meta = config_mod.MODEL_PROFILES.get(profile)
+        if meta is None:
+            raise ValueError("unknown model profile")
+        repo = meta["repo"]
+        if self.config.model_repo == repo and self.config.model_profile == profile:
+            return
+        if self._recording.is_set() or (
+            self._worker is not None and self._worker.is_alive()
+        ):
+            raise RuntimeError("finish the current dictation before switching models")
+        self._cancel_model_idle_unload()
+        if not self._tx_lock.acquire(blocking=False):
+            raise RuntimeError("model is busy")
+        try:
+            backend, old_repo = backends.get_backend(self.config)
+            unload = getattr(backend, "unload_model", None)
+            if unload is not None:
+                unload(old_repo)
+            self._model_ready.clear()
+            self._model_load_error = None
+            self.config.model_profile = profile
+            self.config.model_repo = repo
+            config_mod.save(self.config)
+            self._sync_model_menu_state()
+            self._reclaim_mlx_memory("after model switch unload")
+            self.status_item.title = "Status: loading model…"
+            self.indicator.notify("...", "loading model…")
+        finally:
+            self._tx_lock.release()
+        threading.Thread(
+            target=self._load_selected_model,
+            args=("model switch",),
+            daemon=True,
+        ).start()
+
     def _watch_triggers(self) -> None:
         """Out-of-band control: `touch <config dir>/trigger-camera` toggles
         camera control. Escape hatch for when the menu bar icon is hidden
@@ -194,6 +393,7 @@ class WhisperQuietApp(rumps.App):
         calibrate = config_mod.CONFIG_DIR / "trigger-calibrate"
         cursor = config_mod.CONFIG_DIR / "trigger-cursor"
         quit_file = config_mod.CONFIG_DIR / "trigger-quit"
+        settings = config_mod.CONFIG_DIR / "trigger-settings"
         # The frozen dictation build ships without the camera stack, so its
         # Info.plist has no NSCameraUsageDescription. Acting on a stray
         # trigger-camera there would reach AVCaptureDevice.requestAccess, which
@@ -204,6 +404,9 @@ class WhisperQuietApp(rumps.App):
             if quit_file.exists():
                 quit_file.unlink(missing_ok=True)
                 AppHelper.callAfter(rumps.quit_application)
+            if settings.exists():
+                settings.unlink(missing_ok=True)
+                AppHelper.callAfter(self._open_preferences, self.preferences_item)
             if camera_enabled:
                 if camera.exists():
                     camera.unlink(missing_ok=True)
@@ -318,25 +521,8 @@ class WhisperQuietApp(rumps.App):
             from PyObjCTools import AppHelper
 
             AppHelper.callAfter(self._permission_alert_main, missing)
-        backend, model_repo = backends.get_backend(self.config)
-        # Make the load visible so the first run never looks frozen (fail loud):
-        # a persistent notch + a menu line that says the long wait is a one-time
-        # download, not a hang. Cached launches just flash "loading model…".
-        if self._model_is_cached(model_repo):
-            self.indicator.notify("...", "loading model…")
-            self.status_item.title = "Status: loading model…"
-        else:
-            self.indicator.notify("...", "downloading model…")
-            self.status_item.title = "Status: downloading model (first run, ~1.6 GB)…"
-        mlx_runtime.configure(
-            cache_limit_mb=self.config.mlx_cache_limit_mb,
-            memory_limit_mb=self.config.mlx_memory_limit_mb,
-        )
-        if not self._load_model_with_retries(backend, model_repo):
+        if not self._load_selected_model("warm-up"):
             return  # permanent failure already surfaced; _model_ready stays clear
-        self._reclaim_mlx_memory("after warm-up")
-        self._model_ready.set()
-        self.indicator.hide()
         if self.config.rescore_enabled:
             # keep the polish model resident too, so the first dictation that
             # uses it isn't a multi-second cold load. rescore_warm_up() is
@@ -350,12 +536,49 @@ class WhisperQuietApp(rumps.App):
             except Exception:
                 print("rescore warm-up import/call failed (non-fatal):", flush=True)
                 traceback.print_exc()
-        self.status_item.title = f"Status: idle (hold {self.config.ptt_key} to talk)"
+
+    def _load_selected_model(self, label: str) -> bool:
+        backend, model_repo = backends.get_backend(self.config)
+        meta = config_mod.MODEL_PROFILES.get(
+            getattr(self.config, "model_profile", "custom"), {}
+        )
+        download_mb = meta.get("download_mb")
+        # Make the load visible so the first run never looks frozen (fail loud):
+        # a persistent notch + a menu line that says the wait is a one-time
+        # download, not a hang. Cached launches just flash "loading model…".
+        self._model_loading.set()
+        try:
+            if self._model_is_cached(model_repo):
+                self.indicator.notify("...", "loading model…")
+                self.status_item.title = "Status: loading model…"
+            else:
+                size = f"~{download_mb} MB" if download_mb else "selected model"
+                self.indicator.notify("...", "downloading model…")
+                self.status_item.title = (
+                    f"Status: downloading model (first run, {size})…"
+                )
+            mlx_runtime.configure(
+                cache_limit_mb=self.config.mlx_cache_limit_mb,
+                memory_limit_mb=self.config.mlx_memory_limit_mb,
+            )
+            if not self._load_model_with_retries(backend, model_repo):
+                return False
+            self._reclaim_mlx_memory(f"after {label}")
+            self._model_ready.set()
+            self.indicator.hide()
+            self.status_item.title = (
+                f"Status: idle (hold {self.config.ptt_key} to talk)"
+            )
+            self._sync_model_menu_state()
+            self._mark_model_used()
+            return True
+        finally:
+            self._model_loading.clear()
 
     def _load_model_with_retries(self, backend, model_repo: str, attempts: int = 3) -> bool:
         """Run ``backend.warm_up`` with a couple of retries before giving up.
 
-        What this guards against: the first-run download is a ~1.6 GB
+        What this guards against: the first-run download is a large
         HuggingFace fetch with no exception handling; a ConnectionError,
         HfHubHTTPError, or OSError ("no space left") would kill this daemon
         thread silently, _model_ready would never be set, and the notch would
@@ -369,7 +592,8 @@ class WhisperQuietApp(rumps.App):
         last_exc: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
-                backend.warm_up(model_repo)
+                with self._tx_lock:
+                    backend.warm_up(model_repo)
                 return True
             except Exception as exc:
                 last_exc = exc
@@ -395,7 +619,7 @@ class WhisperQuietApp(rumps.App):
 
     def _reclaim_mlx_memory(self, label: str) -> None:
         """Record MLX counters and release reusable allocator cache."""
-        if not self.config.mlx_clear_cache_after_decode:
+        if not getattr(self.config, "mlx_clear_cache_after_decode", True):
             snap = mlx_runtime.snapshot()
             if snap is not None:
                 self._record_mlx_snapshot(snap)
@@ -418,6 +642,76 @@ class WhisperQuietApp(rumps.App):
         self.stats.record("mlx_active_mb", snap.active_mb)
         self.stats.record("mlx_cache_mb", snap.cache_mb)
         self.stats.record("mlx_peak_mb", snap.peak_mb)
+
+    def _model_idle_unload_seconds(self) -> float:
+        try:
+            return max(0.0, float(getattr(self.config, "model_idle_unload_s", 0) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _cancel_model_idle_unload(self) -> None:
+        timer = getattr(self, "_model_unload_timer", None)
+        self._model_unload_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_model_idle_unload(self, delay: float | None = None) -> None:
+        seconds = self._model_idle_unload_seconds()
+        self._cancel_model_idle_unload()
+        if seconds <= 0 or not self._model_ready.is_set():
+            return
+        wait = seconds if delay is None else max(0.1, delay)
+        timer = threading.Timer(wait, self._unload_model_if_idle)
+        timer.daemon = True
+        self._model_unload_timer = timer
+        timer.start()
+
+    def _mark_model_used(self) -> None:
+        self._model_last_used_t = time.monotonic()
+        self._schedule_model_idle_unload()
+
+    def _unload_model_if_idle(self) -> None:
+        seconds = self._model_idle_unload_seconds()
+        if seconds <= 0:
+            self._cancel_model_idle_unload()
+            return
+        idle_for = time.monotonic() - getattr(self, "_model_last_used_t", 0.0)
+        if idle_for < seconds:
+            self._schedule_model_idle_unload(delay=seconds - idle_for)
+            return
+        if self._recording.is_set() or (
+            self._worker is not None and self._worker.is_alive()
+        ):
+            self._schedule_model_idle_unload(delay=5.0)
+            return
+        if not self._tx_lock.acquire(blocking=False):
+            self._schedule_model_idle_unload(delay=5.0)
+            return
+        try:
+            if self._recording.is_set() or (
+                self._worker is not None and self._worker.is_alive()
+            ):
+                self._schedule_model_idle_unload(delay=5.0)
+                return
+            backend, model_repo = backends.get_backend(self.config)
+            unload = getattr(backend, "unload_model", None)
+            if unload is None:
+                return
+            unloaded = bool(unload(model_repo))
+            self._reclaim_mlx_memory("after idle unload")
+            self._model_ready.clear()
+            if unloaded:
+                self.stats.record("model_idle_unload")
+                print("model idle unload:", model_repo, flush=True)
+            self.status_item.title = (
+                f"Status: idle (cold, hold {self.config.ptt_key} to talk)"
+            )
+        except Exception:
+            print("model idle unload failed:", flush=True)
+            traceback.print_exc()
+            self._schedule_model_idle_unload(delay=30.0)
+        finally:
+            self._tx_lock.release()
 
     # -- dogfood feedback (called from the event tap, main thread) ----------
 
@@ -452,6 +746,7 @@ class WhisperQuietApp(rumps.App):
         print("PTT press", flush=True)
         if self._recording.is_set():
             return
+        cold_start = False
         if not self._model_ready.is_set():
             if self._model_load_error:
                 # the download/load gave up permanently (see _warm_up) — keep
@@ -459,25 +754,39 @@ class WhisperQuietApp(rumps.App):
                 # would otherwise look like it's about to finish forever.
                 self.indicator.notify("!", self._model_load_error)
                 return
-            # hotkey is live during the first-run model download/load; say so
-            # rather than starting a worker that would stall on a cold decode.
-            self.indicator.notify("...", "loading model…")
-            # clear the notice shortly — but not if the model became ready
-            # mid-hold and a real dictation is now showing, so we never blank a
-            # live listening/working notch.
-            threading.Timer(
-                1.4,
-                lambda: None if self._recording.is_set() else self.indicator.hide(),
-            ).start()
-            return
+            loading = getattr(self, "_model_loading", None)
+            if loading is not None and loading.is_set():
+                self.indicator.notify("...", "loading model…")
+                threading.Timer(
+                    1.4,
+                    lambda: None if self._recording.is_set() else self.indicator.hide(),
+                ).start()
+                return
+            _, model_repo = backends.get_backend(self.config)
+            if not self._model_is_cached(model_repo):
+                # hotkey is live during the first-run model download/load; say so
+                # rather than starting a worker that would stall on a cold decode.
+                self.indicator.notify("...", "loading model…")
+                # clear the notice shortly — but not if the model became ready
+                # mid-hold and a real dictation is now showing, so we never blank
+                # a live listening/working notch.
+                threading.Timer(
+                    1.4,
+                    lambda: None if self._recording.is_set() else self.indicator.hide(),
+                ).start()
+                return
+            cold_start = True
         if self._worker is not None and self._worker.is_alive():
             # previous session is still finalizing — reaffirm the honest "working"
             # state in the notch instead of silently dropping the press (the
             # worker hides it once the text lands).
             self.indicator.working()
             return
+        self._cancel_model_idle_unload()
         self._recording.set()
-        self.status_item.title = "Status: listening"
+        self.status_item.title = (
+            "Status: listening (loading model)" if cold_start else "Status: listening"
+        )
         self.indicator.listening()  # bars appear at once; mic opens on the worker
         # IMPORTANT: do NOT open the mic here. This runs on the PTT event-tap
         # (the main run loop); recorder.start() can block — even forever — on a
@@ -700,6 +1009,9 @@ class WhisperQuietApp(rumps.App):
             threading.Timer(2.0, self.indicator.hide).start()
             self._release_t = None  # nothing will commit; don't leave a stale stamp
             self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
+            self._reclaim_mlx_memory("after failed dictation")
+            if self._model_ready.is_set():
+                self._mark_model_used()
             return
         transcribe_ms = int((time.monotonic() - decode_t0) * 1000)
         # optional hard speech-presence gate (default off): never commit text
@@ -751,6 +1063,7 @@ class WhisperQuietApp(rumps.App):
                 final,
                 RescoreConfig(enabled=True, context_hint=" ".join(cfg.vocabulary)),
             )
+        self._model_ready.set()
         self._reclaim_mlx_memory("after dictation")
         if final and cfg.keep_transcripts and (raw_final != final or audio_name):
             self.transcripts.log(
@@ -801,6 +1114,7 @@ class WhisperQuietApp(rumps.App):
             else:
                 self.indicator.hide()
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
+        self._mark_model_used()
 
     def _recording_wait(self, seconds: float) -> None:
         # Sleep in small steps so release cuts the wait short

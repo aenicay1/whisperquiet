@@ -28,6 +28,7 @@ Caveats baked in, matching 2026 reality of the MLX port:
 
 from __future__ import annotations
 
+import gc
 import tempfile
 import wave
 from pathlib import Path
@@ -135,3 +136,16 @@ def warm_up(model_repo: str) -> None:
         transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), model_repo)
     except Exception:
         pass
+
+
+def unload_model(model_repo: str | None = None) -> bool:
+    """Drop cached parakeet model instances for idle memory relief."""
+    if model_repo is None:
+        unloaded = bool(_MODELS)
+        _MODELS.clear()
+    else:
+        unloaded = model_repo in _MODELS
+        _MODELS.pop(model_repo, None)
+    if unloaded:
+        gc.collect()
+    return unloaded

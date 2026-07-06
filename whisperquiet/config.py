@@ -11,6 +11,28 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "whisperquiet"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
+LIGHT_MODEL_REPO = "mlx-community/whisper-small.en-mlx"
+ACCURACY_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
+DEFAULT_MODEL_PROFILE = "light"
+LEGACY_DEFAULT_MODEL_REPO = ACCURACY_MODEL_REPO
+
+MODEL_PROFILES = {
+    "light": {
+        "label": "Light",
+        "repo": LIGHT_MODEL_REPO,
+        "memory_mb": 462,
+        "download_mb": 459,
+        "description": "All-day spoken dictation with much lower memory use.",
+    },
+    "accuracy": {
+        "label": "Accuracy",
+        "repo": ACCURACY_MODEL_REPO,
+        "memory_mb": 1543,
+        "download_mb": 1536,
+        "description": "Best low-volume and whispered-speech accuracy.",
+    },
+}
+
 
 @dataclass
 class Config:
@@ -19,7 +41,8 @@ class Config:
     # tap this key right after a bad gesture/dictation to flag it for review
     flag_key: str = "shift_r"
     # HuggingFace repo for the MLX whisper model
-    model_repo: str = "mlx-community/whisper-large-v3-turbo"
+    model_repo: str = LIGHT_MODEL_REPO
+    model_profile: str = DEFAULT_MODEL_PROFILE
     # Which dictation backend to use: "whisper" (mlx-whisper, the shipping
     # default) or "parakeet" (parakeet-mlx, opt-in — requires the optional
     # [parakeet] extra). Selected via backends.get_backend; the turbo-vs-parakeet
@@ -45,6 +68,9 @@ class Config:
     mlx_cache_limit_mb: int = 256
     mlx_memory_limit_mb: int = 0
     mlx_clear_cache_after_decode: bool = True
+    # Seconds after the last dictation/warm-up before unloading the resident
+    # model. 0 disables. The model stays local and reloads from cache on demand.
+    model_idle_unload_s: float = 300.0
     # hard speech-presence gate on the committed dictation (whisperquiet/vad.py):
     # drops the result when the audio is silence or steady tonal noise so it is
     # never committed as a hallucination. OFF by default — the built-in detector
@@ -68,9 +94,26 @@ class Config:
 def load() -> Config:
     if CONFIG_PATH.exists():
         data = json.loads(CONFIG_PATH.read_text())
+        _migrate_model_profile(data)
         known = {f for f in Config.__dataclass_fields__}
         return Config(**{k: v for k, v in data.items() if k in known})
     return Config()
+
+
+def _migrate_model_profile(data: dict) -> None:
+    """Move pre-profile configs from the old large default to the light model.
+
+    Once a config has ``model_profile`` we treat it as intentional, so selecting
+    Accuracy in the UI persists across relaunches.
+    """
+    if "model_profile" in data:
+        return
+    repo = data.get("model_repo")
+    if repo in (None, "", LIGHT_MODEL_REPO, LEGACY_DEFAULT_MODEL_REPO):
+        data["model_profile"] = DEFAULT_MODEL_PROFILE
+        data["model_repo"] = LIGHT_MODEL_REPO
+    else:
+        data["model_profile"] = "custom"
 
 
 def save(config: Config) -> None:

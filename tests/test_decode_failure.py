@@ -48,6 +48,14 @@ class _NoOpTimer:
         pass
 
 
+class _Stats:
+    def __init__(self):
+        self.calls = []
+
+    def record(self, *args):
+        self.calls.append(args)
+
+
 class _FakeRecorder:
     """Mic never actually opens; stop() hands back a fixed non-silent buffer
     so _stream_loop takes the real decode path instead of the near-silence
@@ -101,13 +109,19 @@ def _bare_app_for_stream_loop() -> appmod.WhisperQuietApp:
     app._mic_ready = threading.Event()
     app._tx_lock = threading.Lock()
     app._release_t = 123.0  # a stale stamp the failure path must clear
+    app._model_ready = threading.Event()
+    app._model_unload_timer = None
+    app._model_last_used_t = appmod.time.monotonic()
     app.indicator = _Indicator()
     app.status_item = _Status()
+    app.stats = _Stats()
     app.config = types.SimpleNamespace(
         language=None,
         vocabulary=[],
         stream_interval=0.1,
         ptt_key="fn",
+        mlx_clear_cache_after_decode=True,
+        model_idle_unload_s=300.0,
     )
     app.recorder = _FakeRecorder(np.ones(4000, dtype=np.float32) * 0.1)
     return app

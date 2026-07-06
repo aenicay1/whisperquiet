@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import cache  # noqa: E402
+from whisperquiet import config as config_mod
 
 
 def test_repo_from_huggingface_cache_dir_name():
@@ -23,7 +24,7 @@ def test_render_status_lists_app_data_and_model_caches(tmp_path):
         tmp_path
         / "hf"
         / "hub"
-        / "models--mlx-community--whisper-large-v3-turbo"
+        / "models--mlx-community--whisper-small.en-mlx"
     )
     model_dir.mkdir(parents=True)
     (model_dir / "weights.bin").write_bytes(b"1" * 1024)
@@ -34,4 +35,4 @@ def test_render_status_lists_app_data_and_model_caches(tmp_path):
     assert "audio" in out
     assert "huggingface cache:" in out
     assert "shipping" in out
-    assert "mlx-community/whisper-large-v3-turbo" in out
+    assert config_mod.LIGHT_MODEL_REPO in out
