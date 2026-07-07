@@ -27,10 +27,10 @@ off via `keep_audio` / `keep_transcripts` in config.
 
 - **Push-to-talk dictation** — hold **right Option**, speak or whisper, release;
   text is injected into the focused app.
-- **Light by default** — `whisper-small.en-mlx` (MLX) keeps the all-day memory
-  footprint much lower for normal spoken dictation.
-- **Accuracy mode** — switch to `whisper-large-v3-turbo` from Preferences when
-  you need the strongest low-volume or whispered-speech accuracy.
+- **Accuracy by default** — `whisper-large-v3-turbo` (MLX) is the default because
+  word accuracy matters more than the smallest idle footprint.
+- **Light mode** — switch to `whisper-small.en-mlx` from Preferences when you
+  want lower memory use and can tolerate more recognition mistakes.
 - **Personal vocabulary** — bias the names and jargon you actually use, editable
   from Preferences or the helper script.
 - **Long-form** — silence-aware chunking + incremental streaming, so long
@@ -43,9 +43,9 @@ off via `keep_audio` / `keep_transcripts` in config.
   wink/brow/mouth gestures for hands-free control. Off by default and currently
   frozen while dictation is the focus (see DESIGN.md, Pivot #2).
 
-Everything runs locally. First launch downloads the default Whisper model
-(~459 MB) once; after that it works offline. The optional Accuracy model is a
-larger one-time download (~1.5 GB).
+Everything runs locally. First launch downloads the default Accuracy model
+(~1.5 GB) once; after that it works offline. The optional Light model is a
+smaller one-time download (~459 MB).
 
 ## Install
 
@@ -58,7 +58,7 @@ open ~/Applications/WhisperQuiet.app
 ```
 
 > Keep the repo **outside** `~/Documents` (TCC blocks app bundles from
-> reading it). First run downloads the default whisper model (~459 MB) and prompts
+> reading it). First run downloads the default whisper model (~1.5 GB) and prompts
 > for **Microphone**, **Accessibility**, and **Input Monitoring** — grant
 > all three, then relaunch (macOS applies permissions at launch). Camera
 > permission is requested only if you enable the experimental camera control.

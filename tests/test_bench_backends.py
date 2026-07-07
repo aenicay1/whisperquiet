@@ -27,7 +27,7 @@ import bench_backends as bb  # noqa: E402
 def test_get_backend_defaults_to_whisper():
     backend, repo = backends.get_backend(Config())
     assert backend is whisper_mod
-    assert repo == config_mod.LIGHT_MODEL_REPO
+    assert repo == config_mod.ACCURACY_MODEL_REPO
 
 
 def test_get_backend_parakeet_when_flag_set():
@@ -40,7 +40,7 @@ def test_get_backend_parakeet_when_flag_set():
 def test_get_backend_unknown_value_falls_back_to_whisper():
     backend, repo = backends.get_backend(Config(dictation_backend="bogus"))
     assert backend is whisper_mod
-    assert repo == config_mod.LIGHT_MODEL_REPO
+    assert repo == config_mod.ACCURACY_MODEL_REPO
 
 
 # --- parakeet optional-dependency boundary --------------------------------- #

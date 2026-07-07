@@ -11,9 +11,10 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "whisperquiet"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
+CONFIG_VERSION = 2
 LIGHT_MODEL_REPO = "mlx-community/whisper-small.en-mlx"
 ACCURACY_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
-DEFAULT_MODEL_PROFILE = "light"
+DEFAULT_MODEL_PROFILE = "accuracy"
 LEGACY_DEFAULT_MODEL_REPO = ACCURACY_MODEL_REPO
 
 MODEL_PROFILES = {
@@ -22,26 +23,27 @@ MODEL_PROFILES = {
         "repo": LIGHT_MODEL_REPO,
         "memory_mb": 462,
         "download_mb": 459,
-        "description": "All-day spoken dictation with much lower memory use.",
+        "description": "Memory saver for casual dictation; lower word accuracy.",
     },
     "accuracy": {
         "label": "Accuracy",
         "repo": ACCURACY_MODEL_REPO,
         "memory_mb": 1543,
         "download_mb": 1536,
-        "description": "Best low-volume and whispered-speech accuracy.",
+        "description": "Default for trusted word accuracy; unloads when idle.",
     },
 }
 
 
 @dataclass
 class Config:
+    config_version: int = CONFIG_VERSION
     # key names from hotkey.KEYCODES
     ptt_key: str = "alt_r"
     # tap this key right after a bad gesture/dictation to flag it for review
     flag_key: str = "shift_r"
     # HuggingFace repo for the MLX whisper model
-    model_repo: str = LIGHT_MODEL_REPO
+    model_repo: str = ACCURACY_MODEL_REPO
     model_profile: str = DEFAULT_MODEL_PROFILE
     # Which dictation backend to use: "whisper" (mlx-whisper, the shipping
     # default) or "parakeet" (parakeet-mlx, opt-in — requires the optional
@@ -70,7 +72,7 @@ class Config:
     mlx_clear_cache_after_decode: bool = True
     # Seconds after the last dictation/warm-up before unloading the resident
     # model. 0 disables. The model stays local and reloads from cache on demand.
-    model_idle_unload_s: float = 300.0
+    model_idle_unload_s: float = 45.0
     # hard speech-presence gate on the committed dictation (whisperquiet/vad.py):
     # drops the result when the audio is silence or steady tonal noise so it is
     # never committed as a hallucination. OFF by default — the built-in detector
@@ -105,19 +107,42 @@ def load() -> Config:
 
 
 def _migrate_model_profile(data: dict) -> None:
-    """Move pre-profile configs from the old large default to the light model.
+    """Move pre-profile configs onto the current default model profile.
 
     Once a config has ``model_profile`` we treat it as intentional, so selecting
-    Accuracy in the UI persists across relaunches.
+    Light or Accuracy in the UI persists across relaunches.
     """
+    version = _config_version(data)
+    if (
+        version < 2
+        and data.get("model_profile") == "light"
+        and data.get("model_repo") == LIGHT_MODEL_REPO
+    ):
+        # The short-lived light-default preview wrote "light" into config.json
+        # on first launch, even when the user never intentionally picked it.
+        # Migrate that broken default once; versioned configs preserve future
+        # explicit Light selections.
+        data["model_profile"] = DEFAULT_MODEL_PROFILE
+        data["model_repo"] = MODEL_PROFILES[DEFAULT_MODEL_PROFILE]["repo"]
+        data["config_version"] = CONFIG_VERSION
+        return
     if "model_profile" in data:
+        data["config_version"] = CONFIG_VERSION
         return
     repo = data.get("model_repo")
     if repo in (None, "", LIGHT_MODEL_REPO, LEGACY_DEFAULT_MODEL_REPO):
         data["model_profile"] = DEFAULT_MODEL_PROFILE
-        data["model_repo"] = LIGHT_MODEL_REPO
+        data["model_repo"] = MODEL_PROFILES[DEFAULT_MODEL_PROFILE]["repo"]
     else:
         data["model_profile"] = "custom"
+    data["config_version"] = CONFIG_VERSION
+
+
+def _config_version(data: dict) -> int:
+    try:
+        return int(data.get("config_version", 1) or 1)
+    except (TypeError, ValueError):
+        return 1
 
 
 def save(config: Config) -> None:

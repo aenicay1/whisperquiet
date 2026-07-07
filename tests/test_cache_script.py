@@ -24,7 +24,7 @@ def test_render_status_lists_app_data_and_model_caches(tmp_path):
         tmp_path
         / "hf"
         / "hub"
-        / "models--mlx-community--whisper-small.en-mlx"
+        / "models--mlx-community--whisper-large-v3-turbo"
     )
     model_dir.mkdir(parents=True)
     (model_dir / "weights.bin").write_bytes(b"1" * 1024)
@@ -35,4 +35,4 @@ def test_render_status_lists_app_data_and_model_caches(tmp_path):
     assert "audio" in out
     assert "huggingface cache:" in out
     assert "shipping" in out
-    assert config_mod.LIGHT_MODEL_REPO in out
+    assert config_mod.ACCURACY_MODEL_REPO in out
