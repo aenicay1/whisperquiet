@@ -18,3 +18,9 @@ def test_distribution_build_keeps_dock_mode_opt_in():
 
     assert "WQ_DOCK_ICON" in text
     assert '"LSUIElement": os.environ.get("WQ_DOCK_ICON", "0") != "1"' in text
+
+
+def test_app_sets_explicit_menu_bar_title():
+    text = (ROOT / "whisperquiet" / "app.py").read_text()
+
+    assert 'super().__init__("WQ", title="WQ", quit_button="Quit")' in text

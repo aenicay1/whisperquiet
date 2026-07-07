@@ -44,7 +44,10 @@ class WhisperQuietApp(rumps.App):
     )
 
     def __init__(self) -> None:
-        super().__init__("WQ", quit_button="Quit")
+        # Keep the menu-bar extra visible as text. Rumps can fall back from
+        # title->icon->name, but setting title explicitly avoids an invisible or
+        # icon-only status item when the bundle/menu state changes.
+        super().__init__("WQ", title="WQ", quit_button="Quit")
         self.config = config_mod.load()
         config_mod.save(self.config)  # write defaults on first run
         self.status_item = rumps.MenuItem("Status: loading model…")
