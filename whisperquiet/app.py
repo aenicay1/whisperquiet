@@ -144,6 +144,7 @@ class WhisperQuietApp(rumps.App):
         )
         self.settings_port = self.settings_server.start()
         print("settings bridge on port", self.settings_port, flush=True)
+        self._open_preferences_once_if_needed()
 
     # (value, min, max, step, label, group) — schema for the playground tab
     _TUNABLES = {
@@ -225,6 +226,19 @@ class WhisperQuietApp(rumps.App):
     def _open_dictionary(self, _item=None) -> None:
         subprocess.Popen(["open", self._preferences_url("dictionary")])
 
+    def _open_preferences_once_if_needed(self) -> None:
+        if getattr(self.config, "preferences_intro_shown", False):
+            return
+        self.config.preferences_intro_shown = True
+        config_mod.save(self.config)
+
+        def open_later() -> None:
+            self._open_preferences()
+
+        timer = threading.Timer(1.0, open_later)
+        timer.daemon = True
+        timer.start()
+
     def _select_light_model(self, _item=None) -> None:
         self._select_model_profile("light")
 
@@ -237,7 +251,7 @@ class WhisperQuietApp(rumps.App):
         except Exception as exc:
             print("model selection failed:", exc, flush=True)
             self.indicator.notify("!", str(exc))
-            threading.Timer(2.0, self.indicator.hide).start()
+            self._hide_indicator_when_idle(2.0)
 
     def _sync_model_menu_state(self) -> None:
         profile = getattr(self.config, "model_profile", "custom")
@@ -418,6 +432,21 @@ class WhisperQuietApp(rumps.App):
                     cursor.unlink(missing_ok=True)
                     AppHelper.callAfter(self._toggle_cursor, self.cursor_item)
             time.sleep(0.5)
+
+    def _work_is_active(self) -> bool:
+        worker = getattr(self, "_worker", None)
+        return self._recording.is_set() or (
+            worker is not None and worker.is_alive()
+        )
+
+    def _hide_indicator_when_idle(self, delay: float) -> None:
+        def hide_if_idle() -> None:
+            if not self._work_is_active():
+                self.indicator.hide()
+
+        timer = threading.Timer(delay, hide_if_idle)
+        timer.daemon = True
+        timer.start()
 
     def _recalibrate(self) -> None:
         self.config.gestures.pop("calibration", None)
@@ -720,7 +749,7 @@ class WhisperQuietApp(rumps.App):
         self.feedback.log("flag", {"recent": self.stats.recent()})
         self.stats.record("flag")
         self.indicator.flagged()
-        threading.Timer(0.9, self.indicator.hide).start()
+        self._hide_indicator_when_idle(0.9)
 
     def _physical_key(self) -> None:
         if time.monotonic() - self._last_commit_t < 8.0:
@@ -757,10 +786,7 @@ class WhisperQuietApp(rumps.App):
             loading = getattr(self, "_model_loading", None)
             if loading is not None and loading.is_set():
                 self.indicator.notify("...", "loading model…")
-                threading.Timer(
-                    1.4,
-                    lambda: None if self._recording.is_set() else self.indicator.hide(),
-                ).start()
+                self._hide_indicator_when_idle(1.4)
                 return
             _, model_repo = backends.get_backend(self.config)
             if not self._model_is_cached(model_repo):
@@ -770,10 +796,7 @@ class WhisperQuietApp(rumps.App):
                 # clear the notice shortly — but not if the model became ready
                 # mid-hold and a real dictation is now showing, so we never blank
                 # a live listening/working notch.
-                threading.Timer(
-                    1.4,
-                    lambda: None if self._recording.is_set() else self.indicator.hide(),
-                ).start()
+                self._hide_indicator_when_idle(1.4)
                 return
             cold_start = True
         if self._worker is not None and self._worker.is_alive():
@@ -826,7 +849,7 @@ class WhisperQuietApp(rumps.App):
         except ImportError:
             # public dictation build is frozen without the camera stack
             self.indicator.notify("!", "camera unavailable")
-            threading.Timer(1.6, self.indicator.hide).start()
+            self._hide_indicator_when_idle(1.6)
             return
 
         if self._camera is None:
@@ -929,7 +952,7 @@ class WhisperQuietApp(rumps.App):
             print("mic failed to open:", exc, flush=True)
             self._recording.clear()
             self.indicator.notify("!", "mic failed")
-            threading.Timer(2.5, self.indicator.hide).start()
+            self._hide_indicator_when_idle(2.5)
             self._release_t = None  # nothing will commit; don't leave a stamp
             return
         stuck_timer.cancel()
@@ -1006,7 +1029,7 @@ class WhisperQuietApp(rumps.App):
                 decode_failed = True
         if decode_failed:
             self.indicator.notify("!", "transcription failed")
-            threading.Timer(2.0, self.indicator.hide).start()
+            self._hide_indicator_when_idle(2.0)
             self._release_t = None  # nothing will commit; don't leave a stale stamp
             self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"
             self._reclaim_mlx_memory("after failed dictation")
@@ -1081,7 +1104,7 @@ class WhisperQuietApp(rumps.App):
             if not can_inject:
                 print("inject blocked:", block_reason, flush=True)
                 self.indicator.notify("!", block_reason)
-                threading.Timer(3.0, self.indicator.hide).start()
+                self._hide_indicator_when_idle(3.0)
                 self._release_t = None  # nothing committed; don't keep a stale stamp
             else:
                 # end-to-end commit latency: PTT release -> first text injected.
@@ -1110,7 +1133,7 @@ class WhisperQuietApp(rumps.App):
             if audio.size > 16000:
                 # decoded but produced nothing — say so, never fail silently
                 self.indicator.notify("!", "no speech")
-                threading.Timer(1.6, self.indicator.hide).start()
+                self._hide_indicator_when_idle(1.6)
             else:
                 self.indicator.hide()
         self.status_item.title = f"Status: idle (hold {cfg.ptt_key} to talk)"

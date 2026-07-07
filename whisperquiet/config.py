@@ -85,6 +85,10 @@ class Config:
     # Raw audio is useful for dogfooding, but it must stay bounded by default.
     audio_retention_mb: int = 512
     audio_retention_days: int = 30
+    # Opens the local Preferences page once after the feature lands, so the
+    # control surface is discoverable even if the menu-bar extra hides in the
+    # notch overflow.
+    preferences_intro_shown: bool = False
     # Gesture/cursor settings, calibration, tunables, experimental flags
     gestures: dict = field(default_factory=dict)
     # Names/jargon the user dictates often; biases the whisper decoder

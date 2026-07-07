@@ -51,6 +51,40 @@ class _NoOpTimer:
         pass
 
 
+class _ManualTimer:
+    timers = []
+
+    def __init__(self, delay, callback, *args, **kwargs):
+        self.delay = delay
+        self.callback = callback
+        self.args = args
+        self.kwargs = kwargs
+        self.daemon = False
+
+    def start(self):
+        self.timers.append(self)
+
+    def cancel(self):
+        pass
+
+    def fire(self):
+        self.callback(*self.args, **self.kwargs)
+
+
+class _ImmediateTimer:
+    def __init__(self, delay, callback, *args, **kwargs):
+        self.callback = callback
+        self.args = args
+        self.kwargs = kwargs
+        self.daemon = False
+
+    def start(self):
+        self.callback(*self.args, **self.kwargs)
+
+    def cancel(self):
+        pass
+
+
 class _ImmediateThread:
     def __init__(self, target=None, args=(), kwargs=None, **_):
         self.target = target
@@ -94,6 +128,7 @@ def _bare_app():
         stream_interval=0.7,
         audio_retention_mb=512,
         audio_retention_days=30,
+        preferences_intro_shown=False,
         vocabulary=[],
     )
     app.indicator = _Indicator()
@@ -141,6 +176,52 @@ def test_press_during_active_model_load_does_not_start_second_load(monkeypatch):
     assert not app._recording.is_set()
     assert app._worker is None
     assert ("notify", "...", "loading model…") in app.indicator.calls
+
+
+def test_delayed_hide_does_not_blank_indicator_while_worker_is_active(monkeypatch):
+    _ManualTimer.timers = []
+    monkeypatch.setattr(appmod.threading, "Timer", _ManualTimer)
+    app = _bare_app()
+
+    class Worker:
+        def is_alive(self):
+            return True
+
+    app._worker = Worker()
+    app._hide_indicator_when_idle(1.4)
+
+    assert len(_ManualTimer.timers) == 1
+    _ManualTimer.timers[0].fire()
+
+    assert ("hide",) not in app.indicator.calls
+
+
+def test_delayed_hide_hides_indicator_once_work_is_idle(monkeypatch):
+    _ManualTimer.timers = []
+    monkeypatch.setattr(appmod.threading, "Timer", _ManualTimer)
+    app = _bare_app()
+
+    app._hide_indicator_when_idle(1.4)
+    _ManualTimer.timers[0].fire()
+
+    assert ("hide",) in app.indicator.calls
+
+
+def test_preferences_open_once_after_feature_lands(monkeypatch):
+    app = _bare_app()
+    app.settings_port = 8377
+    opened = []
+    saved = []
+    monkeypatch.setattr(appmod.threading, "Timer", _ImmediateTimer)
+    monkeypatch.setattr(appmod.config_mod, "save", lambda cfg: saved.append(cfg))
+    monkeypatch.setattr(app, "_open_preferences", lambda _item=None: opened.append(True))
+
+    app._open_preferences_once_if_needed()
+    app._open_preferences_once_if_needed()
+
+    assert app.config.preferences_intro_shown is True
+    assert saved == [app.config]
+    assert opened == [True]
 
 
 def test_press_after_model_ready_records(monkeypatch):

@@ -68,12 +68,18 @@ open ~/Applications/WhisperQuiet.app
 | Action | How |
 |---|---|
 | **Dictate** | hold **right Option**, whisper, release — text lands in the focused app |
-| Open Preferences | WQ menu → *Preferences*, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-settings"` |
+| Open Preferences | WQ menu → *Preferences*, `wq-settings`, or `touch "$HOME/Library/Application Support/whisperquiet/trigger-settings"` |
 | Switch model | WQ menu → *Use Light Model* / *Use Accuracy Model*, or Preferences → Models |
 | Add a vocabulary term | Preferences → Dictionary, or `scripts/vocab.py add "EBITDA" "Circleback"` |
 | Check memory/cache footprint | `scripts/cache.py status` |
 | Dogfood scorecard | `scripts/report.py` |
 | Quit (clears any stuck panel) | `…/trigger-quit` |
+
+Preferences open once after this control surface lands, then stay available from
+the menu/trigger paths. The app stays menu-bar/accessory by default because that
+preserves macOS Accessibility/Input Monitoring grants; build with
+`WQ_DOCK_ICON=1 bash scripts/make_app.sh` only when testing a clean Dock-visible
+permission flow.
 
 Config: `~/Library/Application Support/whisperquiet/config.json`
 (PTT key, whisper model, streaming interval, injection mode, MLX memory caps,
