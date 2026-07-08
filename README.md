@@ -1,5 +1,7 @@
 # WhisperQuiet
 
+**Friends preview / download:** [aenicay1.github.io/whisperquiet-dist](https://aenicay1.github.io/whisperquiet-dist/)
+
 **Private, on-device dictation for macOS — like [Wispr Flow](https://wisprflow.ai),
 but free and fully local.** Hold a key, (whisper-)speak, release — your words land
 in whatever app is focused. No subscription, no account, and **nothing — no audio,
