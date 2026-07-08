@@ -7,9 +7,15 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$HOME/Applications/WhisperQuiet.app"
 
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp -f "$REPO/packaging/whisperquiet.icns" "$APP/Contents/Resources/whisperquiet.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+LSUIELEMENT_BLOCK=''
+if [ "${WQ_DOCK_ICON:-0}" != "1" ]; then
+  LSUIELEMENT_BLOCK=$'    <key>LSUIElement</key>\n    <true/>'
+fi
+
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,14 +25,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>com.yacine.whisperquiet</string>
     <key>CFBundleName</key>
     <string>WhisperQuiet</string>
+    <key>CFBundleDisplayName</key>
+    <string>WhisperQuiet</string>
     <key>CFBundleExecutable</key>
+    <string>whisperquiet</string>
+    <key>CFBundleIconFile</key>
     <string>whisperquiet</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
-    <key>LSUIElement</key>
-    <true/>
+$LSUIELEMENT_BLOCK
     <key>NSMicrophoneUsageDescription</key>
     <string>WhisperQuiet transcribes your whispered speech on-device.</string>
     <key>NSCameraUsageDescription</key>

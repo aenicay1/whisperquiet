@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gc
+import importlib
+
 import numpy as np
 
 from .audio import SAMPLE_RATE, peak_normalize, split_on_silence, trim_trailing_silence
@@ -82,3 +85,28 @@ def transcribe_long(
 def warm_up(model_repo: str) -> None:
     """Trigger model download/compile at app start instead of first utterance."""
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), model_repo)
+
+
+def unload_model(model_repo: str | None = None) -> bool:
+    """Drop mlx-whisper's cached model reference so MLX can release Metal RAM.
+
+    ``mlx_whisper`` keeps the loaded model in ``ModelHolder``. Clearing that
+    holder and running GC releases the active MLX allocations; ``mlx_runtime``
+    handles the allocator cache separately.
+    """
+    try:
+        module = importlib.import_module("mlx_whisper.transcribe")
+        holder = getattr(module, "ModelHolder", None)
+    except Exception:
+        return False
+    if holder is None:
+        return False
+    current_path = getattr(holder, "model_path", None)
+    if model_repo is not None and current_path not in (None, model_repo):
+        return False
+    if getattr(holder, "model", None) is None:
+        return False
+    holder.model = None
+    holder.model_path = None
+    gc.collect()
+    return True

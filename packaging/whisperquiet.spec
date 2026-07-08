@@ -11,7 +11,7 @@ analysis / rpath rewriting these native libs need. PyInstaller does both.
 Build via scripts/build_app.sh (provisions a clean dictation-only build venv):
     bash scripts/build_app.sh        # -> dist/WhisperQuiet.app
 
-Apple Silicon only (mlx). The ~1.6 GB whisper model is NOT bundled — it downloads
+Apple Silicon only (mlx). The default whisper model is NOT bundled — it downloads
 to ~/.cache on first run.
 """
 
@@ -145,7 +145,10 @@ app = BUNDLE(
         "CFBundleDisplayName": "WhisperQuiet",
         "CFBundleShortVersionString": "0.1.0",
         "CFBundleVersion": "0.1.0",
-        "LSUIElement": True,  # no Dock icon / app-switcher entry
+        # Accessory mode preserves the existing Accessibility/Input Monitoring
+        # trust path. Set WQ_DOCK_ICON=1 for a regular Dock-visible build while
+        # testing a clean permission grant.
+        "LSUIElement": os.environ.get("WQ_DOCK_ICON", "0") != "1",
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "13.5",  # mlx needs a recent Metal
         "NSMicrophoneUsageDescription":

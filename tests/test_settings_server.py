@@ -7,9 +7,9 @@ import pytest
 from whisperquiet.settings_server import SettingsServer
 
 
-def _start(get_state=None, apply_state=None):
+def _start(get_state=None, apply_state=None, **kwargs):
     server = SettingsServer(
-        get_state or (lambda: {}), apply_state or (lambda d: None), port=0
+        get_state or (lambda: {}), apply_state or (lambda d: None), port=0, **kwargs
     )
     port = server.start()
     return server, f"http://127.0.0.1:{port}/config"
@@ -20,12 +20,17 @@ def _get_json(url):
         return resp.status, json.loads(resp.read())
 
 
-def _post(url, body: bytes):
+def _post(url, body: bytes, headers=None):
+    headers = {"Content-Type": "application/json", **(headers or {})}
     req = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+        url, data=body, headers=headers, method="POST"
     )
     with urllib.request.urlopen(req, timeout=2) as resp:
         return resp.status, json.loads(resp.read())
+
+
+def _base_url(config_url: str) -> str:
+    return config_url.removesuffix("/config")
 
 
 def test_get_returns_state_dict():
@@ -47,6 +52,53 @@ def test_post_applies_parsed_dict():
         assert status == 200
         assert body == {"ok": True, "applied": 2}
         assert applied == [{"stream_interval": 0.5, "gain": 3}]
+    finally:
+        server.stop()
+
+
+def test_preferences_page_serves_bundled_html_with_token():
+    server, url = _start(
+        preferences_html="<html>token=__WQ_TOKEN__ port=__WQ_PORT__</html>"
+    )
+    try:
+        with urllib.request.urlopen(_base_url(url) + "/", timeout=2) as resp:
+            body = resp.read().decode()
+        assert resp.status == 200
+        assert f"token={server._token}" in body
+        assert f"port={server._server.server_address[1]}" in body
+    finally:
+        server.stop()
+
+
+def test_preferences_state_get_returns_preference_state():
+    state = {"model": {"profile": "light"}, "dictionary": {"terms": ["WQ"]}}
+    server, url = _start(get_preferences=lambda: state)
+    try:
+        status, body = _get_json(_base_url(url) + "/api/state")
+        assert status == 200
+        assert body == state
+    finally:
+        server.stop()
+
+
+def test_preferences_post_requires_token():
+    applied = []
+    server, url = _start(apply_preferences=applied.append)
+    api_url = _base_url(url) + "/api/state"
+    try:
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            _post(api_url, json.dumps({"model_profile": "accuracy"}).encode())
+        assert excinfo.value.code == 403
+        assert applied == []
+
+        status, body = _post(
+            api_url,
+            json.dumps({"model_profile": "accuracy"}).encode(),
+            headers={"X-WQ-Token": server._token},
+        )
+        assert status == 200
+        assert body == {"ok": True, "applied": 1}
+        assert applied == [{"model_profile": "accuracy"}]
     finally:
         server.stop()
 

@@ -183,14 +183,13 @@ Not in priority order within a section unless noted.
   regression-tested in tests/test_model_loading_gate.py). (2) The first-run
   download is now visible — a persistent notch + a menu line ("downloading model
   (first run, ~1.6 GB)…" vs "loading model…", chosen by `_model_is_cached`) so it
-  never looks frozen. (3) App icon shipped (packaging/whisperquiet.icns, the 🤫
-  mark on an indigo squircle). (4) First-run permission onboarding: a one-time
+  never looks frozen. (3) App icon shipped (packaging/whisperquiet.icns, now a
+  WQ mark). (4) First-run permission onboarding: a one-time
   modal that lists missing TCC grants and — crucially — tells the user to RELAUNCH
   (macOS only applies Accessibility/Input-Monitoring at launch); self-correcting,
   never shows once all granted.
   REMAINING (nice-to-have): a real download PROGRESS % / bar (currently just an
-  indeterminate "downloading…"), and the icon is emoji-derived — fine for v1, a
-  custom mark later.
+  indeterminate "downloading…").
 - Swift/SwiftUI port (clean TCC identity, status item, lower idle cost).
 - Login-item + first-run onboarding checklist.
 - Lip-reading AV fusion — backlogged behind kill criterion (≥30% rel. WER

@@ -30,10 +30,14 @@ def test_save_load_roundtrip(tmp_config):
 
 
 def test_new_flag_defaults_off():
+    assert Config().config_version == config_mod.CONFIG_VERSION
+    assert Config().model_repo == config_mod.ACCURACY_MODEL_REPO
+    assert Config().model_profile == config_mod.DEFAULT_MODEL_PROFILE
     assert Config().vad_gate_enabled is False
     assert Config().mlx_cache_limit_mb == 256
     assert Config().mlx_memory_limit_mb == 0
     assert Config().mlx_clear_cache_after_decode is True
+    assert Config().model_idle_unload_s == 45.0
 
 
 def test_save_leaves_no_temp_file(tmp_config):
@@ -70,3 +74,77 @@ def test_load_ignores_unknown_keys(tmp_config):
     cfg = config_mod.load()
     assert cfg.ptt_key == "f13"
     assert not hasattr(cfg, "bogus")
+
+
+def test_load_migrates_legacy_default_model_to_accuracy_profile(tmp_config):
+    (tmp_config / "config.json").write_text(
+        json.dumps({"model_repo": config_mod.ACCURACY_MODEL_REPO})
+    )
+
+    cfg = config_mod.load()
+
+    assert cfg.model_profile == "accuracy"
+    assert cfg.model_repo == config_mod.ACCURACY_MODEL_REPO
+    assert cfg.config_version == config_mod.CONFIG_VERSION
+
+
+def test_load_migrates_old_light_default_to_accuracy_profile(tmp_config):
+    (tmp_config / "config.json").write_text(
+        json.dumps(
+            {
+                "model_profile": "light",
+                "model_repo": config_mod.LIGHT_MODEL_REPO,
+            }
+        )
+    )
+
+    cfg = config_mod.load()
+
+    assert cfg.model_profile == "accuracy"
+    assert cfg.model_repo == config_mod.ACCURACY_MODEL_REPO
+    assert cfg.config_version == config_mod.CONFIG_VERSION
+
+
+def test_load_preserves_versioned_explicit_light_profile(tmp_config):
+    (tmp_config / "config.json").write_text(
+        json.dumps(
+            {
+                "config_version": config_mod.CONFIG_VERSION,
+                "model_profile": "light",
+                "model_repo": config_mod.LIGHT_MODEL_REPO,
+            }
+        )
+    )
+
+    cfg = config_mod.load()
+
+    assert cfg.model_profile == "light"
+    assert cfg.model_repo == config_mod.LIGHT_MODEL_REPO
+    assert cfg.config_version == config_mod.CONFIG_VERSION
+
+
+def test_load_preserves_explicit_accuracy_profile(tmp_config):
+    (tmp_config / "config.json").write_text(
+        json.dumps(
+            {
+                "model_profile": "accuracy",
+                "model_repo": config_mod.ACCURACY_MODEL_REPO,
+            }
+        )
+    )
+
+    cfg = config_mod.load()
+
+    assert cfg.model_profile == "accuracy"
+    assert cfg.model_repo == config_mod.ACCURACY_MODEL_REPO
+    assert cfg.config_version == config_mod.CONFIG_VERSION
+
+
+def test_load_marks_unknown_legacy_repo_as_custom(tmp_config):
+    (tmp_config / "config.json").write_text(json.dumps({"model_repo": "org/custom"}))
+
+    cfg = config_mod.load()
+
+    assert cfg.model_profile == "custom"
+    assert cfg.model_repo == "org/custom"
+    assert cfg.config_version == config_mod.CONFIG_VERSION
