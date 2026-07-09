@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import AppKit
 import objc
+import traceback
 from PyObjCTools import AppHelper
 
 _RISE_PX = 8.0
@@ -71,6 +72,14 @@ def _make_glass_panel(rect, radius: float):
     panel.setOpaque_(False)
     panel.setBackgroundColor_(AppKit.NSColor.clearColor())
     panel.setIgnoresMouseEvents_(True)
+    try:
+        panel.setCollectionBehavior_(
+            AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces
+            | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary
+            | AppKit.NSWindowCollectionBehaviorStationary
+        )
+    except Exception:
+        pass
 
     bounds = AppKit.NSMakeRect(0, 0, rect.size.width, rect.size.height)
 
@@ -408,18 +417,26 @@ class NotchIndicator:
             pass
 
     def _mode_main(self, mode: str) -> None:
-        self._ensure_panel()
-        color, text, glyph = self._MODES.get(mode, self._MODES["listening"])
-        self._mode = mode
-        self._apply(color, text, glyph, dim_dot=(mode == "working"))
-        self._show_panel()
-        self._maybe_spin(mode)
+        try:
+            self._ensure_panel()
+            color, text, glyph = self._MODES.get(mode, self._MODES["listening"])
+            self._mode = mode
+            self._apply(color, text, glyph, dim_dot=(mode == "working"))
+            self._show_panel()
+            self._maybe_spin(mode)
+        except Exception:
+            print("notch indicator: failed to show mode", flush=True)
+            traceback.print_exc()
 
     def _notify_main(self, glyph: str, label: str) -> None:
-        self._ensure_panel()
-        self._mode = "notify"
-        self._apply("red", label, glyph, dim_dot=True)
-        self._show_panel()
+        try:
+            self._ensure_panel()
+            self._mode = "notify"
+            self._apply("red", label, glyph, dim_dot=True)
+            self._show_panel()
+        except Exception:
+            print("notch indicator: failed to show notification", flush=True)
+            traceback.print_exc()
 
     def _show_panel(self) -> None:
         self._gen += 1  # cancels any in-flight fade-out's orderOut + stale spin
