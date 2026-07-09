@@ -3,6 +3,7 @@ and the time-bounded stop() that stops a wedged audio device from hanging the
 dictation worker (the bug that silently bricked all later push-to-talk presses).
 """
 import time
+import threading
 
 import numpy as np
 import pytest
@@ -145,6 +146,41 @@ def test_start_propagates_open_failure_so_worker_can_handle_it(monkeypatch):
     with pytest.raises(RuntimeError):
         r.start()
     assert r._accepting is False  # never went live
+
+
+def test_start_times_out_blocking_open_and_resets_portaudio(monkeypatch):
+    released = threading.Event()
+    calls = []
+
+    class BlockingStream:
+        def start(self):
+            released.wait(2.0)
+            raise RuntimeError("open unblocked after reset")
+
+    monkeypatch.setattr(
+        audio_mod.sd,
+        "query_devices",
+        lambda kind=None: {"default_samplerate": 16000, "name": "Fake"},
+    )
+    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: BlockingStream())
+
+    def terminate():
+        calls.append("terminate")
+        released.set()
+
+    monkeypatch.setattr(audio_mod.sd, "_terminate", terminate)
+    monkeypatch.setattr(audio_mod.sd, "_initialize", lambda: calls.append("initialize"))
+    r = MicRecorder()
+
+    t0 = time.perf_counter()
+    with pytest.raises(TimeoutError):
+        r.start(open_timeout=0.05)
+    elapsed = time.perf_counter() - t0
+
+    assert elapsed < 1.0
+    assert calls == ["terminate", "initialize"]
+    assert r._accepting is False
+    assert r._stream is None
 
 
 def test_open_stream_captures_at_native_rate(monkeypatch):
