@@ -957,6 +957,11 @@ class WhisperQuietApp(rumps.App):
             self.indicator.notify("!", "mic failed")
             self._hide_indicator_when_idle(2.5)
             self._release_t = None  # nothing will commit; don't leave a stamp
+            self.status_item.title = (
+                f"Status: idle (hold {cfg.ptt_key} to talk)"
+                if self._model_ready.is_set()
+                else f"Status: idle (cold, hold {cfg.ptt_key} to talk)"
+            )
             return
         stuck_timer.cancel()
         self._mic_ready.set()

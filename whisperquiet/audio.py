@@ -215,7 +215,7 @@ class MicRecorder:
         # write into a newer recording even if its callback keeps firing.
         self._stream_gen = 0
 
-    def start(self) -> None:
+    def start(self, open_timeout: float = 8.0) -> None:
         """Open the mic and begin capturing. Synchronous, run-to-completion.
 
         MUST be called OFF the main run loop — it runs on the dictation worker
@@ -226,19 +226,31 @@ class MicRecorder:
         press (the "hotkey stopped working" bug); on the worker thread it only
         stalls the one in-flight dictation, leaving the hotkey responsive.
 
-        We deliberately do NOT bound this with a watchdog/abandon: abandoning an
-        in-flight PortAudio open is unsafe — a slow-but-successful open would
-        commit a stream nobody ever closes, and the rescan's process-global
-        ``sd._terminate()`` could tear down a concurrently-opening stream. The
-        caller's worker-alive gate guarantees only one open runs at a time, so
-        the open stays simple and single-threaded instead.
+        If the open hangs, reset PortAudio from a watchdog timer and raise
+        TimeoutError so the app worker can unwind. The caller's worker-alive
+        gate guarantees only one open runs at a time, so the process-global
+        reset cannot tear down a second concurrent open.
         """
         with self._lock:
             self._chunks = []
         self._accepting = False
+        opened = threading.Event()
+        timed_out = threading.Event()
+        timer = self._start_open_watchdog(open_timeout, opened, timed_out)
         try:
-            self._open_stream()
+            try:
+                self._open_stream(timed_out)
+            except Exception:
+                if timed_out.is_set():
+                    self._recover_after_timed_out_open()
+                    raise TimeoutError("mic open timed out")
+                raise
+            if timed_out.is_set():
+                self._recover_after_timed_out_open()
+                raise TimeoutError("mic open timed out")
         except Exception:
+            if timed_out.is_set():
+                raise
             # PortAudio snapshots the device list at init; after a hot-swap
             # (headphones on/off) it goes stale and opens fail even though
             # System Settings shows the right mic. Re-scan and retry once so
@@ -246,10 +258,65 @@ class MicRecorder:
             print("mic open failed — rescanning audio devices", flush=True)
             sd._terminate()
             sd._initialize()
-            self._open_stream()
+            try:
+                self._open_stream(timed_out)
+            except Exception:
+                if timed_out.is_set():
+                    self._recover_after_timed_out_open()
+                    raise TimeoutError("mic open timed out")
+                raise
+            if timed_out.is_set():
+                self._recover_after_timed_out_open()
+                raise TimeoutError("mic open timed out")
+        finally:
+            opened.set()
+            if timer is not None:
+                timer.cancel()
         self._accepting = True  # stream is live; accept callback audio
 
-    def _open_stream(self) -> None:
+    def _start_open_watchdog(
+        self,
+        open_timeout: float,
+        opened: threading.Event,
+        timed_out: threading.Event,
+    ) -> threading.Timer | None:
+        try:
+            timeout = float(open_timeout)
+        except (TypeError, ValueError):
+            timeout = 0.0
+        if timeout <= 0:
+            return None
+
+        def abort_open() -> None:
+            if opened.is_set():
+                return
+            timed_out.set()
+            print("mic open timed out — resetting PortAudio", flush=True)
+            try:
+                sd._terminate()
+            except Exception:
+                pass
+
+        timer = threading.Timer(timeout, abort_open)
+        timer.daemon = True
+        timer.start()
+        return timer
+
+    def _recover_after_timed_out_open(self) -> None:
+        self._accepting = False
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            threading.Thread(
+                target=self._close_quietly,
+                args=(stream,),
+                daemon=True,
+            ).start()
+        try:
+            sd._initialize()
+        except Exception:
+            pass
+
+    def _open_stream(self, timed_out: threading.Event | None = None) -> None:
         self._stream_gen += 1
         callback = self._make_callback(self._stream_gen)
 
@@ -282,6 +349,8 @@ class MicRecorder:
             if rate != SAMPLE_RATE:
                 print(f"mic: capturing {rate}Hz ({name}) → 16kHz", flush=True)
         except Exception:
+            if timed_out is not None and timed_out.is_set():
+                raise
             # last resort: the canonical 16 kHz (built-in mics accept it). If the
             # native-rate open failed/blocked first, start()'s rescan precedes the
             # retry that lands here.

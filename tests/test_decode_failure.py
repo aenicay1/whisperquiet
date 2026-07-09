@@ -80,6 +80,11 @@ class _FakeRecorder:
         return 0.0
 
 
+class _StartFailsRecorder(_FakeRecorder):
+    def start(self):
+        raise TimeoutError("mic open timed out")
+
+
 class _DoubleFailBackend:
     """Both the incremental finalize (via the fake IncrementalTranscriber
     below) and this whole-buffer fallback raise, matching the double-failure
@@ -145,3 +150,18 @@ def test_double_decode_failure_resets_status_and_notifies(monkeypatch):
     assert any(
         c[0] == "notify" and "transcription failed" in c[2] for c in app.indicator.calls
     ), "must surface the failure instead of leaving the notch stuck on working"
+
+
+def test_mic_open_failure_resets_status_and_notifies(monkeypatch):
+    monkeypatch.setattr(appmod.threading, "Timer", _NoOpTimer)
+    app = _bare_app_for_stream_loop()
+    app.recorder = _StartFailsRecorder(np.ones(4000, dtype=np.float32) * 0.1)
+    app.status_item.title = "Status: listening (loading model)"
+
+    app._stream_loop()  # must not leave the app looking busy forever
+
+    assert app._release_t is None
+    assert app.status_item.title == "Status: idle (cold, hold fn to talk)"
+    assert any(
+        c[0] == "notify" and "mic failed" in c[2] for c in app.indicator.calls
+    )
