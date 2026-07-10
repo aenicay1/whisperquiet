@@ -102,6 +102,7 @@ class WhisperQuietApp(rumps.App):
         # surface "mic stuck" if recorder.start() hangs on a wedged device
         # instead of the notch sitting on "listening" with dead, never-moving bars.
         self._mic_ready = threading.Event()
+        self._mic_open_timeout_s = 8.0
         self._last_words = 0
         self._edit_keys = 0
         self._edit_logged = True
@@ -826,6 +827,9 @@ class WhisperQuietApp(rumps.App):
 
     def _on_ptt_release(self) -> None:
         print("PTT release", flush=True)
+        worker_active = self._worker is not None and self._worker.is_alive()
+        if not self._recording.is_set() and not worker_active:
+            return
         # stamp release time for the commit-latency measurement; _stream_loop
         # reads it right before it injects the final text. Only stamp if one is
         # not already pending: a rapid release/press/release while the previous
@@ -929,6 +933,54 @@ class WhisperQuietApp(rumps.App):
 
     # -- streaming worker ----------------------------------------------------
 
+    def _mic_open_timeout_seconds(self) -> float:
+        try:
+            return max(0.1, float(getattr(self, "_mic_open_timeout_s", 8.0)))
+        except (TypeError, ValueError):
+            return 8.0
+
+    def _open_recorder_or_abandon(self, recorder: MicRecorder) -> None:
+        """Open the mic without letting PortAudio strand the dictation worker."""
+        open_timeout = self._mic_open_timeout_seconds()
+        abandon_after = open_timeout + max(0.2, min(1.0, open_timeout * 0.25))
+        done = threading.Event()
+        abandoned = threading.Event()
+        result: dict[str, Exception] = {}
+
+        def open_on_thread() -> None:
+            try:
+                recorder.start(open_timeout=open_timeout)
+            except Exception as exc:
+                result["error"] = exc
+            finally:
+                done.set()
+                if abandoned.is_set() and "error" not in result:
+                    try:
+                        recorder.stop(close_timeout=0.25)
+                    except Exception:
+                        pass
+
+        opener = threading.Thread(target=open_on_thread, daemon=True)
+        opener.start()
+        if done.wait(abandon_after):
+            error = result.get("error")
+            if error is not None:
+                raise error
+            return
+
+        abandoned.set()
+        print(
+            f"mic open did not return after {abandon_after:.1f}s — abandoning",
+            flush=True,
+        )
+        try:
+            recorder.abandon_open()
+        except Exception:
+            pass
+        if self.recorder is recorder:
+            self.recorder = MicRecorder()
+        raise TimeoutError("mic open timed out")
+
     def _stream_loop(self) -> None:
         cfg = self.config
         import numpy as np
@@ -940,6 +992,7 @@ class WhisperQuietApp(rumps.App):
         # A watchdog surfaces "mic stuck" if the open hangs, so a wedged device
         # is never a silent dead-end; on a clean open we promote to "listening".
         self._mic_ready.clear()
+        recorder = self.recorder
 
         def _stuck_warn() -> None:
             if not self._mic_ready.is_set() and self._recording.is_set():
@@ -949,7 +1002,7 @@ class WhisperQuietApp(rumps.App):
         stuck_timer = threading.Timer(4.0, _stuck_warn)
         stuck_timer.start()
         try:
-            self.recorder.start()
+            self._open_recorder_or_abandon(recorder)
         except Exception as exc:
             stuck_timer.cancel()
             print("mic failed to open:", exc, flush=True)
@@ -985,7 +1038,7 @@ class WhisperQuietApp(rumps.App):
         last_partial = ""
         use_incremental = True
         while self._recording.is_set():
-            snap = self.recorder.snapshot()
+            snap = recorder.snapshot()
             try:
                 partial = inc.update(snap)
             except Exception as exc:  # fall back to whole-buffer, never break
@@ -1001,7 +1054,7 @@ class WhisperQuietApp(rumps.App):
                 last_partial = partial
             self._recording_wait(cfg.stream_interval)
 
-        audio = self.recorder.stop()
+        audio = recorder.stop()
         self.status_item.title = "Status: finishing…"
         rms = float(np.sqrt(np.mean(np.square(audio)))) if audio.size else 0.0
         print(f"dictation: {audio.size/16000:.1f}s rms={rms:.5f}", flush=True)

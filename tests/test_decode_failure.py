@@ -41,7 +41,7 @@ class _NoOpTimer:
     def __init__(self, *a, **k):
         pass
 
-    def start(self):
+    def start(self, *args, **kwargs):
         pass
 
     def cancel(self):
@@ -64,7 +64,7 @@ class _FakeRecorder:
     def __init__(self, audio):
         self._audio = audio
 
-    def start(self):
+    def start(self, *args, **kwargs):
         pass
 
     def stop(self, close_timeout: float = 2.0):
@@ -81,8 +81,18 @@ class _FakeRecorder:
 
 
 class _StartFailsRecorder(_FakeRecorder):
-    def start(self):
+    def start(self, *args, **kwargs):
         raise TimeoutError("mic open timed out")
+
+
+class _HangingStartRecorder(_FakeRecorder):
+    def __init__(self, audio):
+        super().__init__(audio)
+        self.started = threading.Event()
+
+    def start(self, *args, **kwargs):
+        self.started.set()
+        threading.Event().wait()
 
 
 class _DoubleFailBackend:
@@ -161,6 +171,28 @@ def test_mic_open_failure_resets_status_and_notifies(monkeypatch):
     app._stream_loop()  # must not leave the app looking busy forever
 
     assert app._release_t is None
+    assert app.status_item.title == "Status: idle (cold, hold fn to talk)"
+    assert any(
+        c[0] == "notify" and "mic failed" in c[2] for c in app.indicator.calls
+    )
+
+
+def test_hung_mic_open_abandons_worker_and_resets_status(monkeypatch):
+    monkeypatch.setattr(appmod.threading, "Timer", _NoOpTimer)
+    app = _bare_app_for_stream_loop()
+    recorder = _HangingStartRecorder(np.ones(4000, dtype=np.float32) * 0.1)
+    app.recorder = recorder
+    app._mic_open_timeout_s = 0.05
+    app.status_item.title = "Status: listening (loading model)"
+
+    worker = threading.Thread(target=app._stream_loop, daemon=True)
+    worker.start()
+    assert recorder.started.wait(0.2), "test setup: fake recorder should be stuck"
+    worker.join(0.5)
+
+    assert not worker.is_alive(), "hung mic open must not strand the dictation worker"
+    assert app._release_t is None
+    assert not app._recording.is_set()
     assert app.status_item.title == "Status: idle (cold, hold fn to talk)"
     assert any(
         c[0] == "notify" and "mic failed" in c[2] for c in app.indicator.calls

@@ -108,6 +108,7 @@ def _bare_app():
     app._model_load_error = None
     app._worker = None
     app._tx_lock = threading.Lock()
+    app._release_t = None
     app._model_last_used_t = appmod.time.monotonic()
     app._model_unload_timer = None
     app._model_loading = threading.Event()
@@ -236,6 +237,15 @@ def test_press_after_model_ready_records(monkeypatch):
     assert app._recording.is_set(), "press must arm recording once the model is ready"
     assert ("listening",) in app.indicator.calls
     assert app._worker is not None, "the dictation worker should be spawned"
+
+
+def test_release_without_active_work_does_not_show_working():
+    app = _bare_app()
+
+    app._on_ptt_release()
+
+    assert ("working",) not in app.indicator.calls
+    assert app._release_t is None
 
 
 def test_idle_unload_drops_model_and_clears_ready(monkeypatch):
