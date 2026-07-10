@@ -316,6 +316,22 @@ class MicRecorder:
         except Exception:
             pass
 
+    def abandon_open(self) -> None:
+        """Make this recorder inert after the app gives up on a hung open.
+
+        PortAudio can remain stuck inside InputStream.start() even after the
+        watchdog terminates the host API. The app may then abandon this recorder
+        and move on with a fresh instance; bump the generation so any late
+        callback from the old stream is ignored.
+        """
+        with self._lock:
+            self._stream_gen += 1
+        try:
+            sd._terminate()
+        except Exception:
+            pass
+        self._recover_after_timed_out_open()
+
     def _open_stream(self, timed_out: threading.Event | None = None) -> None:
         self._stream_gen += 1
         callback = self._make_callback(self._stream_gen)

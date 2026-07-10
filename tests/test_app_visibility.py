@@ -24,3 +24,12 @@ def test_app_sets_explicit_menu_bar_title():
     text = (ROOT / "whisperquiet" / "app.py").read_text()
 
     assert 'super().__init__("WQ", title="WQ", quit_button="Quit")' in text
+
+
+def test_notch_indicator_joins_spaces_and_fullscreen_apps():
+    text = (ROOT / "whisperquiet" / "overlay.py").read_text()
+
+    assert "NSWindowCollectionBehaviorCanJoinAllSpaces" in text
+    assert "NSWindowCollectionBehaviorFullScreenAuxiliary" in text
+    assert "NSWindowCollectionBehaviorStationary" in text
+    assert "setCollectionBehavior_" in text
