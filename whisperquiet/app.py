@@ -11,7 +11,7 @@ import rumps
 
 from . import config as config_mod
 from . import backends, inject, mlx_runtime, vad
-from .audio import MicRecorder
+from .audio_process import MicRecorder
 from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
 from .settings_server import SettingsServer

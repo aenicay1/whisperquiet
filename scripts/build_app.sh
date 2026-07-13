@@ -98,6 +98,18 @@ du -sh "$APP"
 # Metal warm-up decode), and asserts it started exactly ONCE (no fork-bomb).
 # Opt-in because it pops the menu-bar app + TCC prompts. Run it before releasing.
 if [ "${WQ_SMOKE:-0}" = "1" ]; then
+  echo "==> audio child smoke test (spawn + real mic)"
+  AUDIO_SMOKE_LOG="$(mktemp -t wq-audio-smoke)"
+  if WQ_NO_LOG_REDIRECT=1 WQ_AUDIO_PROBE=1 \
+    "$APP/Contents/MacOS/WhisperQuiet" >"$AUDIO_SMOKE_LOG" 2>&1 && \
+    grep -q "audio child smoke PASS" "$AUDIO_SMOKE_LOG"; then
+    grep "audio child smoke PASS" "$AUDIO_SMOKE_LOG"
+  else
+    echo "    audio child smoke FAIL:"
+    cat "$AUDIO_SMOKE_LOG"
+    exit 1
+  fi
+
   echo "==> smoke test (launching frozen app)"
   SMOKE_LOG="$(mktemp -t wq-smoke)"
   # WQ_NO_LOG_REDIRECT so the app leaves stdout alone and we can read the banner
