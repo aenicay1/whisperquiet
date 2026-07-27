@@ -14,9 +14,16 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 import Quartz
+
+# Executing this file directly puts ``scripts/`` on sys.path, not the repository
+# root. Keep the release probe self-contained instead of relying on an editable
+# install in whichever virtual environment happens to run it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from whisperquiet.inject import SYNTHETIC_TAG
 
