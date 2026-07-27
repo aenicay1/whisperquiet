@@ -120,6 +120,12 @@ if [ "${WQ_SMOKE:-0}" = "1" ]; then
     grep -qE "PTT tap installed|Traceback|ModuleNotFoundError|metallib|Abort|Fatal|ImportError" "$SMOKE_LOG" && break
     sleep 1
   done
+  if grep -q "PTT tap installed" "$SMOKE_LOG"; then
+    echo "==> event tap memory smoke test (4,000 tagged events)"
+    "$BUILD_VENV/bin/python" "$REPO/scripts/probe_event_tap_memory.py" \
+      --pid "$SMOKE_PID" \
+      --pairs 2000
+  fi
   sleep 5  # let any relaunch/fork-bomb manifest
   kill -9 "$SMOKE_PID" 2>/dev/null || true
   pkill -9 -f "$APP" 2>/dev/null || true
