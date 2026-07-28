@@ -24,12 +24,13 @@ Not in priority order within a section unless noted.
   commits a stream nobody closes; the rescan's process-global sd._terminate()
   can tear down a concurrent open → use-after-free). The single-threaded
   worker-side open avoids all of that.
-- **KNOWN RESIDUAL: a truly hung mic OPEN soft-bricks dictation until restart.**
-  If sd.InputStream(...).start() blocks forever on a wedged device the worker
-  thread hangs (Python can't kill it), so later presses show "finishing previous
-  dictation…" and dictation stops until relaunch — BUT the hotkey/UI stay
-  responsive (no freeze). Same class as the hung-decode residual below; the real
-  fix is an out-of-process audio engine we can kill.
+- ~~**Truly hung mic OPEN/CLOSE soft-bricks dictation until restart**~~ **FIXED
+  2026-07-12.** PortAudio now lives only in a spawned audio child. Audio chunks
+  stream continuously to the menu-bar parent; if stream open or close never
+  returns, the parent terminates that child and the next PTT starts a clean
+  PortAudio process. A hung close still returns all audio already received.
+  Regression tests force infinite open and close calls, assert bounded child
+  termination, and prove the next recording succeeds in the same app process.
 - **Native-rate mic open** SHIPPED 2026-06-28 (e084d9c) — open at the device's
   native sample rate instead of forcing 16 kHz, since the rate renegotiation is
   what trips the AUHAL -10851. Cuts wedge FREQUENCY; does not guarantee recovery.
@@ -43,10 +44,9 @@ Not in priority order within a section unless noted.
   fails); (3) app vanishes entirely if `open` fails after os._exit (strictly
   worse than the soft-brick); (4) false-positive force-kill of a slow-but-
   successful open at the 8s boundary. A blunt whole-app relaunch tied to PTT
-  timing is the wrong tool. **The only safe auto-recovery is the out-of-process
-  audio engine** (kill+respawn just the audio child; supervisor in the always-
-  alive parent; heartbeat detection decoupled from PTT/_recording). That is the
-  next build — interim today is honest visibility ("mic stuck") + manual restart.
+  timing is the wrong tool. **The safe recovery is the out-of-process audio
+  engine, shipped 2026-07-12:** kill only the wedged audio child while the
+  menu-bar parent, hotkey, model, and captured audio remain alive.
 - **KNOWN RESIDUAL: a truly hung MLX decode still needs a restart.** If a
   partial/finalize decode ever wedges the GPU, it holds `_tx_lock` forever, so
   the worker stays alive and new dictations block on the lock — no in-process

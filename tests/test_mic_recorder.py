@@ -121,7 +121,7 @@ def test_start_opens_and_goes_live(monkeypatch):
         made.append(s)
         return s
 
-    monkeypatch.setattr(audio_mod.sd, "InputStream", fake_input_stream)
+    monkeypatch.setattr(audio_mod._sounddevice(), "InputStream", fake_input_stream)
     r = MicRecorder()
     r.start()
     assert r._accepting is True
@@ -135,13 +135,13 @@ def test_start_propagates_open_failure_so_worker_can_handle_it(monkeypatch):
     def boom(**kw):
         raise RuntimeError("device unavailable")
 
-    monkeypatch.setattr(audio_mod.sd, "InputStream", boom)
+    monkeypatch.setattr(audio_mod._sounddevice(), "InputStream", boom)
     monkeypatch.setattr(
-        audio_mod.sd, "query_devices",
+        audio_mod._sounddevice(), "query_devices",
         lambda kind=None: {"default_samplerate": 48000, "name": "Fake"},
     )
-    monkeypatch.setattr(audio_mod.sd, "_terminate", lambda: None)
-    monkeypatch.setattr(audio_mod.sd, "_initialize", lambda: None)
+    monkeypatch.setattr(audio_mod._sounddevice(), "_terminate", lambda: None)
+    monkeypatch.setattr(audio_mod._sounddevice(), "_initialize", lambda: None)
     r = MicRecorder()
     with pytest.raises(RuntimeError):
         r.start()
@@ -158,18 +158,22 @@ def test_start_times_out_blocking_open_and_resets_portaudio(monkeypatch):
             raise RuntimeError("open unblocked after reset")
 
     monkeypatch.setattr(
-        audio_mod.sd,
+        audio_mod._sounddevice(),
         "query_devices",
         lambda kind=None: {"default_samplerate": 16000, "name": "Fake"},
     )
-    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: BlockingStream())
+    monkeypatch.setattr(
+        audio_mod._sounddevice(), "InputStream", lambda **kw: BlockingStream()
+    )
 
     def terminate():
         calls.append("terminate")
         released.set()
 
-    monkeypatch.setattr(audio_mod.sd, "_terminate", terminate)
-    monkeypatch.setattr(audio_mod.sd, "_initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(audio_mod._sounddevice(), "_terminate", terminate)
+    monkeypatch.setattr(
+        audio_mod._sounddevice(), "_initialize", lambda: calls.append("initialize")
+    )
     r = MicRecorder()
 
     t0 = time.perf_counter()
@@ -202,10 +206,12 @@ def test_open_stream_captures_at_native_rate(monkeypatch):
             pass
 
     monkeypatch.setattr(
-        audio_mod.sd, "query_devices",
+        audio_mod._sounddevice(), "query_devices",
         lambda kind=None: {"default_samplerate": 48000.0, "name": "EarPods"},
     )
-    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: FakeStream(**kw))
+    monkeypatch.setattr(
+        audio_mod._sounddevice(), "InputStream", lambda **kw: FakeStream(**kw)
+    )
     r = MicRecorder()
     r._open_stream()
     assert opened["rate"] == 48000
@@ -234,10 +240,12 @@ def test_open_stream_falls_back_to_16k_when_native_open_fails(monkeypatch):
             pass
 
     monkeypatch.setattr(
-        audio_mod.sd, "query_devices",
+        audio_mod._sounddevice(), "query_devices",
         lambda kind=None: {"default_samplerate": 48000.0, "name": "X"},
     )
-    monkeypatch.setattr(audio_mod.sd, "InputStream", lambda **kw: PickyStream(**kw))
+    monkeypatch.setattr(
+        audio_mod._sounddevice(), "InputStream", lambda **kw: PickyStream(**kw)
+    )
     r = MicRecorder()
     r._open_stream()
     assert tried == [48000, 16000]  # native first, then the 16k last resort

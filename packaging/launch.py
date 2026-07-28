@@ -40,6 +40,28 @@ if __name__ == "__main__":
         except OSError:
             pass
 
+    # Build-time production probe: exercise multiprocessing spawn + bundled
+    # sounddevice/PortAudio + the real default mic without launching the UI or
+    # loading Whisper. The environment is inherited by the spawned child, but
+    # freeze_support() consumes its multiprocessing invocation before execution
+    # reaches this branch, so it cannot recurse into another probe.
+    if os.environ.get("WQ_AUDIO_PROBE"):
+        import time
+
+        from whisperquiet.audio_process import ProcessMicRecorder
+
+        recorder = ProcessMicRecorder()
+        recorder.start(open_timeout=8.0)
+        time.sleep(0.25)
+        audio = recorder.stop(close_timeout=2.0)
+        if not audio.size:
+            raise SystemExit("audio child smoke FAIL: no samples")
+        print(
+            f"audio child smoke PASS: samples={audio.size}",
+            flush=True,
+        )
+        raise SystemExit(0)
+
     from whisperquiet.app import main
 
     main()

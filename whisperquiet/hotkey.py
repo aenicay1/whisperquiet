@@ -139,18 +139,18 @@ class PushToTalk:
                 # macOS disabled us; turn the tap back on immediately
                 Quartz.CGEventTapEnable(self._tap, True)
                 print("PTT tap re-enabled (was disabled in-stream)", flush=True)
-                return event
+                return None
             if (
                 Quartz.CGEventGetIntegerValueField(
                     event, Quartz.kCGEventSourceUserData
                 )
                 == SYNTHETIC_TAG
             ):
-                return event  # our own output, not user input
+                return None  # our own output, not user input
             if etype in self._MOUSE_TYPES:
                 if self._on_physical_mouse is not None:
                     self._on_physical_mouse()
-                return event
+                return None
             keycode = Quartz.CGEventGetIntegerValueField(
                 event, Quartz.kCGKeyboardEventKeycode
             )
@@ -204,7 +204,10 @@ class PushToTalk:
                     self._set_held(False)
         except Exception:  # never let an exception kill the tap callback
             pass
-        return event
+        # This is a listen-only tap, so CoreGraphics ignores the callback's
+        # return value. Returning the bridged CGEventRef here makes PyObjC retain
+        # one proxy for every global input event for the life of the process.
+        return None
 
     def _set_held(self, held: bool) -> None:
         if held == self._held:

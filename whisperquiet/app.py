@@ -11,7 +11,7 @@ import rumps
 
 from . import config as config_mod
 from . import backends, inject, mlx_runtime, vad
-from .audio import MicRecorder
+from .audio_process import MicRecorder
 from .cleanup import clean as clean_text
 from .feedback import FeedbackLog
 from .settings_server import SettingsServer
@@ -983,6 +983,38 @@ class WhisperQuietApp(rumps.App):
 
     def _stream_loop(self) -> None:
         cfg = self.config
+        recorder = self.recorder
+        try:
+            self._stream_loop_impl(cfg, recorder)
+        except Exception:
+            # A daemon worker must never be allowed to die while recording is
+            # armed. That would make every later PTT press return at the guard
+            # in _on_ptt_press, which looks like a permanently stuck app.
+            traceback.print_exc()
+            self._recover_interrupted_dictation(cfg, recorder)
+
+    def _recover_interrupted_dictation(self, cfg, recorder: MicRecorder) -> None:
+        """Return to a clean, usable state after an unexpected live-take error."""
+        self._recording.clear()
+        self._mic_ready.clear()
+        try:
+            # Kill rather than reuse the old child: an unexpected pipe failure
+            # means its PortAudio/IPC state is no longer trustworthy.
+            recorder.abandon_open()
+        except Exception:
+            pass
+        if self.recorder is recorder:
+            self.recorder = MicRecorder()
+        self._release_t = None
+        self.indicator.notify("!", "dictation interrupted")
+        self._hide_indicator_when_idle(2.5)
+        self.status_item.title = (
+            f"Status: idle (hold {cfg.ptt_key} to talk)"
+            if self._model_ready.is_set()
+            else f"Status: idle (cold, hold {cfg.ptt_key} to talk)"
+        )
+
+    def _stream_loop_impl(self, cfg, recorder: MicRecorder) -> None:
         import numpy as np
         from .incremental import IncrementalTranscriber
 
@@ -992,7 +1024,6 @@ class WhisperQuietApp(rumps.App):
         # A watchdog surfaces "mic stuck" if the open hangs, so a wedged device
         # is never a silent dead-end; on a clean open we promote to "listening".
         self._mic_ready.clear()
-        recorder = self.recorder
 
         def _stuck_warn() -> None:
             if not self._mic_ready.is_set() and self._recording.is_set():

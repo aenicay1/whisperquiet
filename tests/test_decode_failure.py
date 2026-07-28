@@ -95,6 +95,20 @@ class _HangingStartRecorder(_FakeRecorder):
         threading.Event().wait()
 
 
+class _SnapshotFailsRecorder(_FakeRecorder):
+    """Represents a corrupt packet from the audio child during a live take."""
+
+    def __init__(self, audio):
+        super().__init__(audio)
+        self.abandoned = False
+
+    def snapshot(self):
+        raise ValueError("buffer size must be a multiple of element size")
+
+    def abandon_open(self):
+        self.abandoned = True
+
+
 class _DoubleFailBackend:
     """Both the incremental finalize (via the fake IncrementalTranscriber
     below) and this whole-buffer fallback raise, matching the double-failure
@@ -197,3 +211,34 @@ def test_hung_mic_open_abandons_worker_and_resets_status(monkeypatch):
     assert any(
         c[0] == "notify" and "mic failed" in c[2] for c in app.indicator.calls
     )
+
+
+def test_corrupt_audio_packet_recovers_and_allows_the_next_press(monkeypatch):
+    monkeypatch.setattr(appmod.threading, "Timer", _NoOpTimer)
+    monkeypatch.setattr(
+        appmod.backends, "get_backend", lambda _cfg: (_DoubleFailBackend(), "fake/model")
+    )
+    app = _bare_app_for_stream_loop()
+    recorder = _SnapshotFailsRecorder(np.ones(4000, dtype=np.float32) * 0.1)
+    app.recorder = recorder
+    app._recording.set()
+    app._model_ready.set()
+    app._model_load_error = None
+    app._worker = None
+
+    app._stream_loop()
+
+    assert not app._recording.is_set(), "a crashed take must not lock out later PTT"
+    assert recorder.abandoned, "the old audio child must be abandoned"
+    assert app.status_item.title == "Status: idle (hold fn to talk)"
+    assert any(
+        c[0] == "notify" and "dictation interrupted" in c[2]
+        for c in app.indicator.calls
+    )
+
+    # The guard at _on_ptt_press used to reject every subsequent press because
+    # the failed stream left _recording set. A fresh press must arm normally.
+    monkeypatch.setattr(app, "_stream_loop", lambda: None)
+    monkeypatch.setattr(app, "_level_loop", lambda: None)
+    app._on_ptt_press()
+    assert app._recording.is_set()

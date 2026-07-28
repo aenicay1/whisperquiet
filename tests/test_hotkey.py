@@ -272,3 +272,13 @@ def test_flag_key_none_is_a_noop(clock):
     ), None)
     assert ptt._flag_held is False
     assert on_flag.count == 0
+
+
+def test_listen_only_callback_does_not_return_event_proxy(clock):
+    """Returning CGEventRef through PyObjC retains one proxy per global event."""
+    ptt = make_ptt()
+    event = FakeEvent(keycode=LETTER_A_KEYCODE)
+
+    result = ptt._handle(None, Quartz.kCGEventKeyDown, event, None)
+
+    assert result is None

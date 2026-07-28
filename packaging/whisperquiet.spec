@@ -65,6 +65,7 @@ hiddenimports += [
     "_sounddevice_data",
     "cffi",
     "_cffi_backend",
+    "whisperquiet.audio_process",
     "whisperquiet.incremental",
     "whisperquiet.transcribe",
     "whisperquiet.vad",

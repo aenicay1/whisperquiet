@@ -5,7 +5,21 @@ from __future__ import annotations
 import threading
 
 import numpy as np
-import sounddevice as sd
+
+# PortAudio initialises at sounddevice import time. Keep that import lazy so the
+# always-alive menu-bar process never owns PortAudio state; production capture
+# imports it only inside the killable child in audio_process.py. This legacy
+# in-process recorder remains as a directly testable capture primitive.
+sd = None
+
+
+def _sounddevice():
+    global sd
+    if sd is None:
+        import sounddevice as sounddevice_module
+
+        sd = sounddevice_module
+    return sd
 
 SAMPLE_RATE = 16_000  # what whisper expects
 
@@ -205,7 +219,7 @@ class MicRecorder:
     def __init__(self) -> None:
         self._chunks: list[np.ndarray] = []
         self._lock = threading.Lock()
-        self._stream: sd.InputStream | None = None
+        self._stream: object | None = None
         # Only accept callback audio between start() and stop(). Guards against
         # a stream we had to abandon (its close() hung on a wedged device) still
         # firing its callback into a later recording's buffer.
@@ -231,6 +245,7 @@ class MicRecorder:
         gate guarantees only one open runs at a time, so the process-global
         reset cannot tear down a second concurrent open.
         """
+        sd = _sounddevice()
         with self._lock:
             self._chunks = []
         self._accepting = False
@@ -286,6 +301,7 @@ class MicRecorder:
             timeout = 0.0
         if timeout <= 0:
             return None
+        sd = _sounddevice()
 
         def abort_open() -> None:
             if opened.is_set():
@@ -303,6 +319,7 @@ class MicRecorder:
         return timer
 
     def _recover_after_timed_out_open(self) -> None:
+        sd = _sounddevice()
         self._accepting = False
         stream, self._stream = self._stream, None
         if stream is not None:
@@ -324,6 +341,7 @@ class MicRecorder:
         and move on with a fresh instance; bump the generation so any late
         callback from the old stream is ignored.
         """
+        sd = _sounddevice()
         with self._lock:
             self._stream_gen += 1
         try:
@@ -333,6 +351,7 @@ class MicRecorder:
         self._recover_after_timed_out_open()
 
     def _open_stream(self, timed_out: threading.Event | None = None) -> None:
+        sd = _sounddevice()
         self._stream_gen += 1
         callback = self._make_callback(self._stream_gen)
 
