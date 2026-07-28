@@ -185,6 +185,11 @@ class ProcessMicRecorder:
         self._chunks: list[np.ndarray] = []
         self._rate = SAMPLE_RATE
         self._data_lock = threading.Lock()
+        # ``multiprocessing.Connection`` has one framed byte stream, not a
+        # broadcast channel. The dictation worker (snapshot) and the visual
+        # meter (recent) both drain it, so they must never poll/recv together:
+        # two readers can split a frame and leave one permanently blocked.
+        self._audio_read_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
 
     @property
@@ -340,17 +345,33 @@ class ProcessMicRecorder:
         return None
 
     def _drain_audio(self) -> None:
-        connection = self._audio
-        if connection is None:
-            return
         chunks: list[np.ndarray] = []
-        try:
-            while connection.poll():
-                packet = connection.recv_bytes()
-                if packet:
-                    chunks.append(np.frombuffer(packet, dtype=np.float32).copy())
-        except (EOFError, OSError):
-            pass
+        # Serialize poll + recv as one operation. Locking only the append below
+        # is too late: recv_bytes itself consumes bytes from a shared framed
+        # pipe, and concurrent reads can corrupt its framing or block forever.
+        with self._audio_read_lock:
+            connection = self._audio
+            if connection is None:
+                return
+            try:
+                while connection.poll():
+                    packet = connection.recv_bytes()
+                    if not packet:
+                        continue
+                    if len(packet) % np.dtype(np.float32).itemsize:
+                        print(
+                            f"mic: dropped corrupt audio packet ({len(packet)} bytes)",
+                            flush=True,
+                        )
+                        continue
+                    try:
+                        chunks.append(np.frombuffer(packet, dtype=np.float32).copy())
+                    except ValueError:
+                        # A terminated child can leave a malformed payload. Do
+                        # not let one packet kill the worker and lock out PTT.
+                        print("mic: dropped unreadable audio packet", flush=True)
+            except (EOFError, OSError):
+                pass
         if chunks:
             with self._data_lock:
                 self._chunks.extend(chunks)
@@ -365,12 +386,15 @@ class ProcessMicRecorder:
                 process.kill()
                 process.join(0.35)
         self._drain_audio()
-        for connection in (self._control, self._audio):
-            if connection is not None:
-                try:
-                    connection.close()
-                except OSError:
-                    pass
+        # Do not close the pipe underneath a concurrent drain. The receive
+        # lock also makes child teardown deterministic after a failed take.
+        with self._audio_read_lock:
+            for connection in (self._control, self._audio):
+                if connection is not None:
+                    try:
+                        connection.close()
+                    except OSError:
+                        pass
         self._process = None
         self._control = None
         self._audio = None

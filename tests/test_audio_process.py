@@ -94,3 +94,91 @@ def test_recent_audio_is_resampled_from_child_native_rate() -> None:
     recorder.stop(close_timeout=0.5)
 
     assert recent.size == 800
+
+
+class _PacketConnection:
+    """Minimal audio-pipe stand-in for packet decoding tests."""
+
+    def __init__(self, *packets: bytes) -> None:
+        self._packets = list(packets)
+
+    def poll(self) -> bool:
+        return bool(self._packets)
+
+    def recv_bytes(self) -> bytes:
+        return self._packets.pop(0)
+
+
+def test_corrupt_audio_packet_is_dropped_and_later_packet_is_kept() -> None:
+    recorder = ProcessMicRecorder(context=_spawn_context(), worker_target=_healthy_worker)
+    good = np.array([0.25, -0.5], dtype=np.float32).tobytes()
+    recorder._audio = _PacketConnection(b"bad", good)
+
+    recorder._drain_audio()
+
+    audio = recorder.snapshot()
+    np.testing.assert_array_equal(audio, np.array([0.25, -0.5], dtype=np.float32))
+
+
+class _ConcurrentReadConnection:
+    """Raises if two callers race into one framed pipe read."""
+
+    def __init__(self) -> None:
+        self._packet = np.array([0.1, 0.2], dtype=np.float32).tobytes()
+        self._available = True
+        self._state_lock = threading.Lock()
+        self._receive_lock = threading.Lock()
+        self._poll_barrier = threading.Barrier(2)
+
+    def poll(self) -> bool:
+        with self._state_lock:
+            available = self._available
+        if not available:
+            return False
+        try:
+            # With no recorder receive lock, both drains pass this barrier and
+            # race into recv_bytes. With one, the first times out, drains, and
+            # the second observes no packet.
+            self._poll_barrier.wait(timeout=0.15)
+        except threading.BrokenBarrierError:
+            pass
+        with self._state_lock:
+            return self._available
+
+    def recv_bytes(self) -> bytes:
+        if not self._receive_lock.acquire(blocking=False):
+            raise RuntimeError("concurrent audio-pipe read")
+        try:
+            time.sleep(0.01)
+            with self._state_lock:
+                if not self._available:
+                    raise EOFError
+                self._available = False
+            return self._packet
+        finally:
+            self._receive_lock.release()
+
+
+def test_concurrent_snapshot_and_meter_do_not_read_audio_pipe_together() -> None:
+    recorder = ProcessMicRecorder(context=_spawn_context(), worker_target=_healthy_worker)
+    recorder._audio = _ConcurrentReadConnection()
+    start = threading.Barrier(3)
+    errors: list[BaseException] = []
+
+    def drain() -> None:
+        start.wait()
+        try:
+            recorder._drain_audio()
+        except BaseException as exc:  # test captures a concurrent reader crash
+            errors.append(exc)
+
+    first = threading.Thread(target=drain)
+    second = threading.Thread(target=drain)
+    first.start()
+    second.start()
+    start.wait()
+    first.join(0.75)
+    second.join(0.75)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert not errors
